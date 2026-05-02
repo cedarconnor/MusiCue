@@ -7,9 +7,12 @@ package can be hard to install).
 """
 from __future__ import annotations
 
+import logging
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 
 def allin1_version() -> str:
@@ -96,6 +99,9 @@ def detect_structure(audio_path: Path, backend: str = "allin1") -> dict:
                         "bar": bar,
                         "is_downbeat": t in downbeat_set,
                         "confidence": 0.9,
+                        # All beats use timescale="micro". Downbeats are identifiable via
+                        # is_downbeat; bar-level "meso" events are derived elsewhere
+                        # (e.g., by phrase grouping).
                         "timescale": "micro",
                     }
                 )
@@ -118,8 +124,13 @@ def detect_structure(audio_path: Path, backend: str = "allin1") -> dict:
                 "beats": beats,
                 "sections": sections,
             }
-        except Exception:
+        except Exception as exc:
             # Fall through to librosa fallback on any error (import, model load,
-            # inference, attribute access on result, etc.).
-            pass
+            # inference, attribute access on result, etc.). Log so operational
+            # failures aren't indistinguishable from "allin1 not installed".
+            log.warning(
+                "All-In-One backend failed (%s: %s); falling back to librosa.",
+                type(exc).__name__,
+                exc,
+            )
     return _librosa_fallback(audio_path)
