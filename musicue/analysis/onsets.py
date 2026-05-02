@@ -1,8 +1,10 @@
 from __future__ import annotations
-import numpy as np
-import librosa
-import soundfile as sf
+
 from pathlib import Path
+
+import librosa
+import numpy as np
+import soundfile as sf
 
 
 def detect_onsets(audio_path: Path, sr: int = 22050) -> list[dict]:

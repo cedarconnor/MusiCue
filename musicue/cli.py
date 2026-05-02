@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional
+
 import typer
 
 app = typer.Typer(name="musicue", help="Convert songs to typed event timelines for DCC tools.")
@@ -15,7 +17,7 @@ _EXPORTERS = {
 def analyze(
     song: Path = typer.Argument(..., help="Input audio file (.wav, .flac, .mp3)"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
-    out: Optional[Path] = typer.Option(None, "--out", "-o", help="Output directory for analysis.json"),
+    out: Optional[Path] = typer.Option(None, "--out", "-o", help="Output dir for analysis.json"),
 ) -> None:
     """Run Layer 1 analysis - write analysis.json."""
     from musicue.analysis.pipeline import run_analysis
@@ -44,6 +46,7 @@ def compile(
     analysis = AnalysisResult.model_validate_json(analysis_path.read_text())
     cuesheet = compile_analysis(analysis, grammar=grammar)
     out_path = out or analysis_path.parent / "cuesheet.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(cuesheet.model_dump_json(indent=2))
     typer.echo(f"Cuesheet written to {out_path}")
 
@@ -51,12 +54,13 @@ def compile(
 @app.command()
 def export(
     cuesheet_path: Path = typer.Argument(..., help="Path to cuesheet.json"),
-    target: str = typer.Option(..., "--target", "-t", help=f"Export target: {', '.join(_EXPORTERS)}"),
+    target: str = typer.Option(..., "--target", "-t", help=f"Target: {','.join(_EXPORTERS)}"),
     out: Optional[Path] = typer.Option(None, "--out", "-o"),
 ) -> None:
     """Run Layer 3 exporter: cuesheet.json - target format."""
-    from musicue.schemas import CueSheet
     import importlib
+
+    from musicue.schemas import CueSheet
 
     if target not in _EXPORTERS:
         typer.echo(f"Unknown target '{target}'. Available: {', '.join(_EXPORTERS)}", err=True)
@@ -80,6 +84,7 @@ def render(
 ) -> None:
     """Convenience: analyze - compile - export in one shot."""
     import importlib
+
     from musicue.analysis.pipeline import run_analysis
     from musicue.compile.compiler import compile_analysis
     from musicue.config import MusiCueConfig

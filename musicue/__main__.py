@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 
 # Fix Windows console encoding for Unicode output
 if sys.platform == "win32":

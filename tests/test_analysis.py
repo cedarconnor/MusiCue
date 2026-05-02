@@ -1,11 +1,14 @@
-import shutil
 import shutil as _shutil
+from unittest.mock import MagicMock, patch
+
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
-from musicue.analysis.separation import separate, demucs_version
-from musicue.analysis.onsets import detect_onsets
+
 from musicue.analysis.curves import compute_lufs_curve, compute_rms_curve
+from musicue.analysis.onsets import detect_onsets
+from musicue.analysis.pipeline import run_analysis
+from musicue.analysis.separation import demucs_version, separate
+from musicue.config import MusiCueConfig
+from musicue.schemas import AnalysisResult
 
 
 def test_demucs_version_returns_string():
@@ -107,9 +110,6 @@ def test_rms_curve_non_negative(synthetic_wav):
     assert all(v >= 0.0 for v in curve["values"])
 
 
-from musicue.analysis.pipeline import run_analysis
-from musicue.config import MusiCueConfig
-from musicue.schemas import AnalysisResult
 
 
 def _make_cfg(tmp_path):
@@ -163,6 +163,7 @@ def test_pipeline_caches_and_skips_demucs_on_rerun(tmp_path, synthetic_wav):
 def test_full_pipeline_wav_to_csv(tmp_path, synthetic_wav):
     """Full pipeline on real audio. Requires demucs installed. Mark: integration."""
     import csv as csv_mod
+
     from musicue.compile.compiler import compile_analysis
     from musicue.exporters.csv import export as csv_export
 

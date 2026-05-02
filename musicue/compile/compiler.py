@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from musicue.schemas import AnalysisResult, CueSheet, CueTrack
 
 

@@ -1,8 +1,14 @@
 import pytest
-from musicue.schemas import (
-    AnalysisConfig, AnalysisResult, CueSheet, OnsetEvent, SourceInfo, TimedCurve,
-)
+
 from musicue.compile.compiler import compile_analysis
+from musicue.schemas import (
+    AnalysisConfig,
+    AnalysisResult,
+    CueSheet,
+    OnsetEvent,
+    SourceInfo,
+    TimedCurve,
+)
 
 
 def _make_analysis(onsets=None, lufs_values=None) -> AnalysisResult:

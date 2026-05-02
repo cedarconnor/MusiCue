@@ -7,10 +7,11 @@ import tempfile
 # Without a writable cache dir numba spins trying to acquire a file lock.
 os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(tempfile.gettempdir(), "numba_cache"))
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 import soundfile as sf
-from pathlib import Path
 
 
 @pytest.fixture(scope="session")

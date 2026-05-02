@@ -1,7 +1,8 @@
 import csv
 import json
+
 import pytest
-from pathlib import Path
+
 from musicue.schemas import CueSheet, CueTrack
 
 
@@ -17,8 +18,10 @@ def _make_cuesheet() -> CueSheet:
                 type="impulse",
                 timescale="micro",
                 events=[
-                    {"t": 0.5, "strength": 0.9, "envelope": {"a": 0.005, "d": 0.12, "s": 0.0, "r": 0.0}, "tags": []},
-                    {"t": 2.0, "strength": 0.7, "envelope": {"a": 0.005, "d": 0.12, "s": 0.0, "r": 0.0}, "tags": []},
+                    {"t": 0.5, "strength": 0.9,
+                     "envelope": {"a": 0.005, "d": 0.12, "s": 0.0, "r": 0.0}, "tags": []},
+                    {"t": 2.0, "strength": 0.7,
+                     "envelope": {"a": 0.005, "d": 0.12, "s": 0.0, "r": 0.0}, "tags": []},
                 ],
             ),
             CueTrack(

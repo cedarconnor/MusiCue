@@ -1,7 +1,10 @@
 from __future__ import annotations
+
 import csv
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+
 from musicue.schemas import CueSheet, CueTrack
 
 
@@ -9,8 +12,7 @@ def _time_grid(cuesheet: CueSheet, default_hop: float = 0.04) -> np.ndarray:
     hops = [track.hop_sec for track in cuesheet.tracks
             if track.type == "continuous" and track.hop_sec]
     hop = min(hops) if hops else default_hop
-    n = max(1, int(np.ceil(cuesheet.duration_sec / hop)))
-    return np.linspace(0.0, cuesheet.duration_sec, n, endpoint=False)
+    return np.arange(0.0, cuesheet.duration_sec, hop)
 
 
 def _continuous_col(track: CueTrack, times: np.ndarray) -> list[float]:
@@ -24,9 +26,10 @@ def _impulse_col(track: CueTrack, times: np.ndarray) -> list[float]:
     col = np.zeros(len(times))
     hop = float(times[1] - times[0]) if len(times) > 1 else 0.04
     for event in track.events:
-        t = event.get("t") or event.get("t_start", 0.0)
-        idx = int(round(float(t) / hop))
-        if 0 <= idx < len(col):
+        raw_t = event.get("t")
+        t = float(raw_t if raw_t is not None else event.get("t_start", 0.0))
+        idx = min(int(round(t / hop)), len(col) - 1)
+        if idx >= 0:
             col[idx] = float(event.get("strength", 1.0))
     return list(col)
 

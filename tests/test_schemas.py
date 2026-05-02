@@ -1,14 +1,21 @@
 import pytest
+
 from musicue.schemas import (
-    AnalysisResult, SourceInfo, AnalysisConfig, TimedCurve,
-    CueSheet, CueTrack, ADSREnvelope, BeatEvent, OnsetEvent,
+    ADSREnvelope,
+    AnalysisResult,
+    BeatEvent,
+    CueSheet,
+    CueTrack,
+    OnsetEvent,
+    TimedCurve,
 )
 
 
 def _minimal_analysis_dict():
     return {
         "schema_version": "1.1",
-        "source": {"path": "song.wav", "sha256": "abc123", "duration_sec": 10.0, "sample_rate": 44100},
+        "source": {"path": "song.wav", "sha256": "abc123",
+                   "duration_sec": 10.0, "sample_rate": 44100},
         "analysis_config": {"demucs_model": "htdemucs_ft", "demucs_version": "4.0.1"},
         "stems": {"drums": "stems/drums.wav"},
     }
@@ -51,7 +58,8 @@ def test_cuesheet_roundtrip():
                 name="kick",
                 type="impulse",
                 timescale="micro",
-                events=[{"t": 0.5, "strength": 0.9, "envelope": {"a": 0.005, "d": 0.12, "s": 0.0, "r": 0.0}, "tags": []}],
+                events=[{"t": 0.5, "strength": 0.9,
+                         "envelope": {"a": 0.005, "d": 0.12, "s": 0.0, "r": 0.0}, "tags": []}],
             )
         ],
     )

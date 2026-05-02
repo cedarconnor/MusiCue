@@ -44,5 +44,5 @@ typeCheckingMode = "basic"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v"
+addopts = "-v -m 'not integration'"
 markers = ["integration: marks tests that require real model inference (slow)"]

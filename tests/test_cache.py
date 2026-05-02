@@ -1,6 +1,5 @@
 import json
-from pathlib import Path
-import pytest
+
 from musicue.cache import Cache, build_audio_cache_key
 
 

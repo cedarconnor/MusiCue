@@ -1,15 +1,21 @@
 from __future__ import annotations
+
 import hashlib
-import soundfile as sf
 from pathlib import Path
+
+import soundfile as sf
 
 from musicue.analysis.curves import compute_lufs_curve, compute_rms_curve
 from musicue.analysis.onsets import detect_onsets
-from musicue.analysis.separation import separate, demucs_version
+from musicue.analysis.separation import demucs_version, separate
 from musicue.cache import Cache, build_audio_cache_key
 from musicue.config import MusiCueConfig
 from musicue.schemas import (
-    AnalysisConfig, AnalysisResult, OnsetEvent, SourceInfo, TimedCurve,
+    AnalysisConfig,
+    AnalysisResult,
+    OnsetEvent,
+    SourceInfo,
+    TimedCurve,
 )
 
 

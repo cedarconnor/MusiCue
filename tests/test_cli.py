@@ -1,6 +1,5 @@
 import subprocess
 import sys
-import pytest
 
 
 def cli(*args) -> subprocess.CompletedProcess:
@@ -39,10 +38,10 @@ def test_render_help():
 
 
 def test_export_unknown_target_exits_nonzero(tmp_path):
-    import json
     from musicue.schemas import CueSheet
     cs = CueSheet(source_sha256="x", grammar="g", duration_sec=1.0, tempo_map=[], tracks=[])
     cuesheet_path = tmp_path / "cs.json"
     cuesheet_path.write_text(cs.model_dump_json())
-    r = cli("export", str(cuesheet_path), "--target", "nonexistent_format", "--out", str(tmp_path / "out"))
+    r = cli("export", str(cuesheet_path), "--target", "nonexistent_format",
+            "--out", str(tmp_path / "out"))
     assert r.returncode != 0

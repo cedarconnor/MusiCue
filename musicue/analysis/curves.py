@@ -1,10 +1,12 @@
 from __future__ import annotations
+
 import math
-import numpy as np
+from pathlib import Path
+
 import librosa
+import numpy as np
 import pyloudnorm as pyln
 import soundfile as sf
-from pathlib import Path
 
 _BS1770_WINDOW = 0.4  # pyloudnorm integrated_loudness requires ≥400ms
 
