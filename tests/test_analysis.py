@@ -1,4 +1,5 @@
 import shutil
+import shutil as _shutil
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -104,3 +105,55 @@ def test_rms_curve_non_negative(synthetic_wav):
     curve = compute_rms_curve(synthetic_wav, hop_sec=0.04)
     assert len(curve["values"]) > 0
     assert all(v >= 0.0 for v in curve["values"])
+
+
+from musicue.analysis.pipeline import run_analysis
+from musicue.config import MusiCueConfig
+from musicue.schemas import AnalysisResult
+
+
+def _make_cfg(tmp_path):
+    cfg = MusiCueConfig()
+    cfg.cache_dir = tmp_path / "cache"
+    cfg.runs_dir = tmp_path / "runs"
+    return cfg
+
+
+def _fake_separate(audio_path, out_dir, model):
+    stem_dir = out_dir / model / audio_path.stem
+    stem_dir.mkdir(parents=True)
+    stems = {}
+    for s in ("drums", "bass", "vocals", "other"):
+        p = stem_dir / f"{s}.wav"
+        _shutil.copy(audio_path, p)
+        stems[s] = p
+    return stems
+
+
+def test_pipeline_returns_analysis_result(tmp_path, synthetic_wav):
+    cfg = _make_cfg(tmp_path)
+    with patch("musicue.analysis.pipeline.separate", side_effect=_fake_separate):
+        result = run_analysis(synthetic_wav, cfg)
+    assert isinstance(result, AnalysisResult)
+    assert result.source.duration_sec > 0
+    assert set(result.stems.keys()) == {"drums", "bass", "vocals", "other"}
+    assert "drums" in result.onsets
+    assert "lufs" in result.curves
+    assert "rms_drums" in result.curves
+
+
+def test_pipeline_source_sha256_matches_file(tmp_path, synthetic_wav):
+    import hashlib
+    cfg = _make_cfg(tmp_path)
+    with patch("musicue.analysis.pipeline.separate", side_effect=_fake_separate):
+        result = run_analysis(synthetic_wav, cfg)
+    expected = hashlib.sha256(synthetic_wav.read_bytes()).hexdigest()
+    assert result.source.sha256 == expected
+
+
+def test_pipeline_caches_and_skips_demucs_on_rerun(tmp_path, synthetic_wav):
+    cfg = _make_cfg(tmp_path)
+    with patch("musicue.analysis.pipeline.separate", side_effect=_fake_separate) as mock_sep:
+        run_analysis(synthetic_wav, cfg)
+        run_analysis(synthetic_wav, cfg)
+    assert mock_sep.call_count == 1  # demucs ran only once
