@@ -1,0 +1,13 @@
+.worktrees/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+*.log
+*.tmp
+cache/
+models/
