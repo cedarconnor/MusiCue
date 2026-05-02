@@ -3,7 +3,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from musicue.analysis.curves import compute_lufs_curve, compute_rms_curve
+from musicue.analysis.curves import (
+    compute_lufs_curve,
+    compute_rms_curve,
+    compute_spectral_centroid_curve,
+    compute_spectral_flux_curve,
+    compute_stereo_width_pan,
+)
 from musicue.analysis.onsets import detect_onsets
 from musicue.analysis.pipeline import run_analysis
 from musicue.analysis.separation import demucs_version, separate
@@ -110,6 +116,23 @@ def test_rms_curve_non_negative(synthetic_wav):
     assert all(v >= 0.0 for v in curve["values"])
 
 
+def test_spectral_centroid_curve(synthetic_wav):
+    c = compute_spectral_centroid_curve(synthetic_wav, hop_sec=0.04)
+    assert len(c["values"]) > 0
+    assert all(v >= 0 for v in c["values"])
+
+
+def test_spectral_flux_curve(synthetic_wav):
+    c = compute_spectral_flux_curve(synthetic_wav, hop_sec=0.04)
+    assert len(c["values"]) > 0
+    assert all(v >= 0 for v in c["values"])
+
+
+def test_stereo_width_pan_on_mono_returns_zero(synthetic_wav):
+    result = compute_stereo_width_pan(synthetic_wav, hop_sec=0.04)
+    # synthetic_wav is mono; width should be 0 or near 0
+    assert "width" in result and "pan" in result
+    assert all(abs(v) < 0.01 for v in result["width"]["values"])
 
 
 def _make_cfg(tmp_path):

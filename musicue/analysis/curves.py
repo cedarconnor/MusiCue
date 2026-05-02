@@ -42,3 +42,47 @@ def compute_rms_curve(audio_path: Path, hop_sec: float = 0.04) -> dict:
     hop = max(1, int(hop_sec * rate))
     rms = librosa.feature.rms(y=data, hop_length=hop)[0]
     return {"hop_sec": hop / rate, "values": [float(v) for v in rms]}
+
+
+def compute_spectral_centroid_curve(audio_path: Path, hop_sec: float = 0.04) -> dict:
+    y, rate = librosa.load(str(audio_path), sr=None, mono=True)
+    hop = max(1, int(hop_sec * rate))
+    centroid = librosa.feature.spectral_centroid(y=y, sr=rate, hop_length=hop)[0]
+    return {"hop_sec": hop / rate, "values": [float(v) for v in centroid]}
+
+
+def compute_spectral_flux_curve(audio_path: Path, hop_sec: float = 0.04) -> dict:
+    y, rate = librosa.load(str(audio_path), sr=None, mono=True)
+    hop = max(1, int(hop_sec * rate))
+    flux = librosa.onset.onset_strength(y=y, sr=rate, hop_length=hop)
+    return {"hop_sec": hop / rate, "values": [float(v) for v in flux]}
+
+
+def compute_stereo_width_pan(audio_path: Path, hop_sec: float = 0.04) -> dict:
+    data, rate = sf.read(str(audio_path))
+    hop = max(1, int(hop_sec * rate))
+    if data.ndim == 1:
+        n = max(1, len(data) // hop)
+        zeros = [0.0] * n
+        return {
+            "width": {"hop_sec": hop / rate, "values": zeros},
+            "pan": {"hop_sec": hop / rate, "values": zeros},
+        }
+    L, R = data[:, 0], data[:, 1]
+    width_vals, pan_vals = [], []
+    for i in range(0, len(data) - hop, hop):
+        l_chunk = L[i : i + hop]
+        r_chunk = R[i : i + hop]
+        mid = l_chunk + r_chunk
+        side = l_chunk - r_chunk
+        mid_rms = float(np.sqrt(np.mean(mid ** 2)) + 1e-9)
+        side_rms = float(np.sqrt(np.mean(side ** 2)) + 1e-9)
+        width_vals.append(float(np.clip(side_rms / mid_rms, 0.0, 1.0)))
+        l_rms = float(np.sqrt(np.mean(l_chunk ** 2)) + 1e-9)
+        r_rms = float(np.sqrt(np.mean(r_chunk ** 2)) + 1e-9)
+        pan_vals.append(float(np.clip((r_rms - l_rms) / (r_rms + l_rms), -1.0, 1.0)))
+    actual_hop = hop / rate
+    return {
+        "width": {"hop_sec": actual_hop, "values": width_vals},
+        "pan": {"hop_sec": actual_hop, "values": pan_vals},
+    }
