@@ -182,6 +182,55 @@ def test_pipeline_caches_and_skips_demucs_on_rerun(tmp_path, synthetic_wav):
     assert mock_sep.call_count == 1  # demucs ran only once
 
 
+def test_m1_pipeline_includes_beats_and_sections(tmp_path, synthetic_wav):
+    cfg = _make_cfg(tmp_path)
+
+    with patch("musicue.analysis.pipeline.separate", side_effect=_fake_separate):
+        with patch("musicue.analysis.pipeline.detect_structure") as mock_struct:
+            mock_struct.return_value = {
+                "tempo": {
+                    "bpm_global": 120.0,
+                    "bpm_curve": [{"t": 0.0, "bpm": 120.0}],
+                    "time_signature": [4, 4],
+                },
+                "beats": [
+                    {
+                        "t": 0.5,
+                        "beat_in_bar": 1,
+                        "bar": 1,
+                        "is_downbeat": True,
+                        "confidence": 0.9,
+                        "timescale": "micro",
+                    },
+                ],
+                "sections": [
+                    {
+                        "start": 0.0,
+                        "end": 5.0,
+                        "label": "intro",
+                        "confidence": 0.9,
+                        "timescale": "macro",
+                    },
+                ],
+            }
+            result = run_analysis(synthetic_wav, cfg)
+
+    assert result.tempo is not None
+    assert result.tempo.bpm_global == pytest.approx(120.0)
+    assert len(result.beats) == 1
+    assert result.beats[0].is_downbeat is True
+    assert len(result.sections) == 1
+    assert result.sections[0].label == "intro"
+
+
+def test_m1_pipeline_includes_spectral_curves(tmp_path, synthetic_wav):
+    cfg = _make_cfg(tmp_path)
+    with patch("musicue.analysis.pipeline.separate", side_effect=_fake_separate):
+        result = run_analysis(synthetic_wav, cfg)
+    assert "spectral_centroid" in result.curves
+    assert "spectral_flux" in result.curves
+
+
 @pytest.mark.integration
 def test_full_pipeline_wav_to_csv(tmp_path, synthetic_wav):
     """Full pipeline on real audio. Requires demucs installed. Mark: integration."""
