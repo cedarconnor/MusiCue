@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "musicue"
+version = "0.1.0"
+description = "Convert songs into typed event timelines for DCC tools"
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.2",
+    "torchaudio>=2.2",
+    "demucs>=4.0",
+    "librosa>=0.10",
+    "pyloudnorm>=0.1.0",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pydantic>=2.0",
+    "typer>=0.12",
+    "pyyaml>=6.0",
+    "soundfile>=0.12",
+]
+
+[project.scripts]
+musicue = "musicue.cli:app"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.4", "pyright>=1.1", "matplotlib>=3.8"]
+clap = ["laion-clap"]
+midi = ["mido>=1.3"]
+osc = ["python-osc>=1.8"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+markers = ["integration: marks tests that require real model inference (slow)"]
