@@ -1,0 +1,23 @@
+# prompt_banks/default_clap_prompts.yaml
+# Default CLAP prompt bank used by the CLAP re-ranker (§5.5).
+# Add prompts here to extend label coverage without modifying Python code.
+# Per-grammar prompt overrides go in grammar.yaml under `clap_prompts:`.
+
+prompts:
+  - "sub bass drop"
+  - "vocal stab"
+  - "guitar stab"
+  - "cymbal swell"
+  - "vocal melisma"
+  - "snare roll"
+  - "riser"
+  - "impact hit"
+  - "breakdown"
+  - "build up"
+  - "silence"
+  - "808 slide"
+  - "orchestral hit"
+  - "reverse cymbal"
+  - "piano arpeggio"
+  - "punchy kick"
+  - "deep kick"
