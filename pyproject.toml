@@ -8,8 +8,8 @@ version = "0.1.0"
 description = "Convert songs into typed event timelines for DCC tools"
 requires-python = ">=3.11"
 dependencies = [
-    "torch>=2.2",
-    "torchaudio>=2.2",
+    "torch>=2.2,<3",
+    "torchaudio>=2.2,<3",
     "demucs>=4.0",
     "librosa>=0.10",
     "pyloudnorm>=0.1.0",
