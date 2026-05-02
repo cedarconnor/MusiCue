@@ -157,3 +157,32 @@ def test_pipeline_caches_and_skips_demucs_on_rerun(tmp_path, synthetic_wav):
         run_analysis(synthetic_wav, cfg)
         run_analysis(synthetic_wav, cfg)
     assert mock_sep.call_count == 1  # demucs ran only once
+
+
+@pytest.mark.integration
+def test_full_pipeline_wav_to_csv(tmp_path, synthetic_wav):
+    """Full pipeline on real audio. Requires demucs installed. Mark: integration."""
+    import csv as csv_mod
+    from musicue.compile.compiler import compile_analysis
+    from musicue.exporters.csv import export as csv_export
+
+    cfg = MusiCueConfig()
+    cfg.cache_dir = tmp_path / "cache"
+    cfg.runs_dir = tmp_path / "runs"
+
+    analysis = run_analysis(synthetic_wav, cfg)
+    assert analysis.source.duration_sec > 0
+    assert "drums" in analysis.onsets
+    assert "lufs" in analysis.curves
+
+    cuesheet = compile_analysis(analysis, grammar="concert_visuals")
+    assert cuesheet.duration_sec > 0
+    assert len(cuesheet.tracks) >= 1
+
+    out_csv = tmp_path / "output.csv"
+    csv_export(cuesheet, out_csv)
+    assert out_csv.exists()
+    with open(out_csv, newline="") as f:
+        rows = list(csv_mod.DictReader(f))
+    assert len(rows) > 0
+    assert "time_sec" in rows[0]
