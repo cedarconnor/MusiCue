@@ -52,7 +52,8 @@ def plot_timeline(analysis_path: Path, out_path: Path | None = None) -> None:
         times = [e.t for e in events]
         axes[1].vlines(times, 0, 1, label=stem, alpha=0.6, lw=0.6)
     axes[1].set_ylabel("Onsets")
-    axes[1].legend(loc="upper right", fontsize=7)
+    if result.onsets:
+        axes[1].legend(loc="upper right", fontsize=7)
 
     colors = {"intro": "#4CAF50", "verse": "#2196F3", "chorus": "#FF5722",
               "bridge": "#9C27B0", "outro": "#607D8B"}

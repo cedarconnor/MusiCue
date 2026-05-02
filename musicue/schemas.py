@@ -28,6 +28,7 @@ class AnalysisConfig(BaseModel):
     basic_pitch_version: str = ""
     drum_classifier_version: str = ""
     beat_backend: Literal["allin1", "librosa"] = "allin1"
+    curve_hop_sec: float = 0.04
 
 
 class TempoInfo(BaseModel):

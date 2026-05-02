@@ -207,6 +207,7 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
             basic_pitch_version=basic_pitch_version(),
             clap_version=clap_version(),
             beat_backend=cfg.analysis.beat_backend,
+            curve_hop_sec=cfg.analysis.curve_hop_sec,
         ),
         stems=stems_str,
         tempo=tempo,
