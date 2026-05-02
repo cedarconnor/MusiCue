@@ -27,6 +27,7 @@ musicue = "musicue.cli:app"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.4", "pyright>=1.1", "matplotlib>=3.8"]
+models = ["allin1"]
 clap = ["laion-clap"]
 midi = ["mido>=1.3"]
 osc = ["python-osc>=1.8"]
