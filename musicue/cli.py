@@ -13,6 +13,7 @@ _EXPORTERS = {
     "midi": ("musicue.exporters.midi", ".mid"),
     "after_effects": ("musicue.exporters.aftereffects", ".jsx"),
     "touchdesigner": ("musicue.exporters.touchdesigner", ".csv"),
+    "osc": ("musicue.exporters.osc", "_osc.json"),
 }
 
 
