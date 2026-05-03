@@ -13,6 +13,8 @@ import numpy as np
 import pytest
 import soundfile as sf
 
+from musicue.schemas import CueSheet, CueTrack
+
 
 @pytest.fixture(scope="session")
 def synthetic_wav(tmp_path_factory) -> Path:
@@ -32,3 +34,72 @@ def synthetic_wav(tmp_path_factory) -> Path:
     p = tmp_path_factory.mktemp("fixtures") / "test_song.wav"
     sf.write(str(p), signal, sr)
     return p
+
+
+@pytest.fixture()
+def full_cuesheet() -> CueSheet:
+    """CueSheet exercising all five track types - used by exporter tests."""
+    kick_env = {"a": 0.005, "d": 0.12, "s": 0.0, "r": 0.0}
+    return CueSheet(
+        source_sha256="abc123",
+        grammar="concert_visuals",
+        duration_sec=10.0,
+        tempo_map=[{"t": 0.0, "bpm": 120.0}],
+        tracks=[
+            CueTrack(
+                name="kick",
+                type="impulse",
+                timescale="micro",
+                events=[
+                    {"t": 0.5, "strength": 0.9, "envelope": kick_env, "tags": ["kick"]},
+                    {"t": 1.0, "strength": 0.8, "envelope": kick_env, "tags": ["kick"]},
+                    {"t": 2.0, "strength": 0.7, "envelope": kick_env, "tags": ["kick"]},
+                ],
+            ),
+            CueTrack(
+                name="vocal_phrase",
+                type="envelope",
+                timescale="meso",
+                events=[
+                    {
+                        "t_start": 3.0,
+                        "t_end": 5.5,
+                        "strength": 0.85,
+                        "envelope": {"a": 0.30, "d": 0.20, "s": 0.7, "r": 0.50},
+                        "tags": ["vocal_entry"],
+                    },
+                ],
+            ),
+            CueTrack(
+                name="section_change",
+                type="step",
+                timescale="macro",
+                events=[
+                    {"t": 0.0, "value": 1, "label": "intro"},
+                    {"t": 5.0, "value": 2, "label": "chorus"},
+                ],
+            ),
+            CueTrack(
+                name="section_ramp",
+                type="ramp",
+                timescale="macro",
+                events=[
+                    {
+                        "t_start": 4.0,
+                        "t_end": 5.0,
+                        "from": 0.0,
+                        "to": 1.0,
+                        "shape": "ease_in_out",
+                        "label": "intro->chorus",
+                    },
+                ],
+            ),
+            CueTrack(
+                name="energy",
+                type="continuous",
+                timescale="macro",
+                hop_sec=0.1,
+                values=[-20.0 + i * 0.05 for i in range(100)],
+            ),
+        ],
+    )
