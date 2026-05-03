@@ -11,6 +11,7 @@ _EXPORTERS = {
     "csv": ("musicue.exporters.csv", ".csv"),
     "json": ("musicue.exporters.json_export", ".json"),
     "midi": ("musicue.exporters.midi", ".mid"),
+    "after_effects": ("musicue.exporters.aftereffects", ".jsx"),
 }
 
 
