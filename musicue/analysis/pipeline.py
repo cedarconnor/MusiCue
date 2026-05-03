@@ -33,6 +33,7 @@ from musicue.analysis.curves import (
     compute_spectral_flux_curve,
     compute_stereo_width_pan,
 )
+from musicue.analysis.drum_classifier import classify_onsets_batch, drum_classifier_version
 from musicue.analysis.onsets import detect_onsets
 from musicue.analysis.phrases import group_into_phrases
 from musicue.analysis.separation import demucs_version, separate
@@ -63,12 +64,14 @@ def _sha256(path: Path) -> str:
 
 
 def _version_dict(cfg: MusiCueConfig) -> dict:
+    drum_model_path = Path("models/drum_cnn.pt")
     return {
         "demucs_model": cfg.analysis.demucs_model,
         "demucs_version": demucs_version(),
         "allin1_version": allin1_version(),
         "basic_pitch_version": basic_pitch_version(),
         "clap_version": clap_version(),
+        "drum_classifier_version": drum_classifier_version(drum_model_path),
         "beat_backend": cfg.analysis.beat_backend,
         "curve_hop_sec": cfg.analysis.curve_hop_sec,
     }
@@ -105,6 +108,30 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
     onsets: dict[str, list[OnsetEvent]] = {}
     for stem_name, stem_path in stems.items():
         onsets[stem_name] = [OnsetEvent.model_validate(o) for o in detect_onsets(stem_path)]
+
+    # --- Drum classification (best-effort) ---------------------------------
+    drum_model_path = Path("models/drum_cnn.pt")
+    if drum_model_path.exists() and "drums" in stems:
+        try:
+            import numpy as np
+
+            drum_audio, drum_sr = sf.read(str(stems["drums"]))
+            if drum_audio.ndim > 1:
+                drum_audio = drum_audio.mean(axis=1)
+            drum_onset_dicts = [o.model_dump() for o in onsets.get("drums", [])]
+            classified = classify_onsets_batch(
+                drum_onset_dicts,
+                drum_audio.astype(np.float32),
+                sr=drum_sr,
+                model_path=drum_model_path,
+            )
+            onsets["drums"] = [OnsetEvent.model_validate(e) for e in classified]
+        except Exception as exc:
+            log.warning(
+                "Drum classification skipped (%s: %s).",
+                type(exc).__name__,
+                exc,
+            )
 
     # --- Transcription + phrasing (vocals, other) --------------------------
     midi: dict[str, list[dict]] = {}
@@ -206,6 +233,7 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
             allin1_version=allin1_version(),
             basic_pitch_version=basic_pitch_version(),
             clap_version=clap_version(),
+            drum_classifier_version=drum_classifier_version(Path("models/drum_cnn.pt")),
             beat_backend=cfg.analysis.beat_backend,
             curve_hop_sec=cfg.analysis.curve_hop_sec,
         ),
