@@ -133,5 +133,23 @@ def plot(
         typer.echo(f"Plot saved to {out}")
 
 
+@app.command()
+def listen(
+    cuesheet_path: Path = typer.Argument(..., help="Path to cuesheet.json"),
+    audio: Optional[Path] = typer.Option(
+        None, "--audio", "-a", help="Original audio to mix under clicks"
+    ),
+    out: Optional[Path] = typer.Option(None, "--out", "-o", help="Output WAV path"),
+) -> None:
+    """Render QC click-track: stereo-placed clicks per event, optionally over source audio."""
+    from musicue.listen import render_click_track
+    from musicue.schemas import CueSheet
+
+    cs = CueSheet.model_validate_json(cuesheet_path.read_text())
+    out_path = out or cuesheet_path.parent / "clicks.wav"
+    render_click_track(cs, audio, out_path)
+    typer.echo(f"Click track written to {out_path}")
+
+
 if __name__ == "__main__":
     app()
