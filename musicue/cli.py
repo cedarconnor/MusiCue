@@ -10,6 +10,10 @@ app = typer.Typer(name="musicue", help="Convert songs to typed event timelines f
 _EXPORTERS = {
     "csv": ("musicue.exporters.csv", ".csv"),
     "json": ("musicue.exporters.json_export", ".json"),
+    "midi": ("musicue.exporters.midi", ".mid"),
+    "after_effects": ("musicue.exporters.aftereffects", ".jsx"),
+    "touchdesigner": ("musicue.exporters.touchdesigner", ".csv"),
+    "osc": ("musicue.exporters.osc", "_osc.json"),
 }
 
 
