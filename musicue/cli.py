@@ -16,6 +16,7 @@ _EXPORTERS = {
     "osc": ("musicue.exporters.osc", "_osc.json"),
     "houdini": ("musicue.exporters.houdini", "_houdini.csv"),
     "disguise": ("musicue.exporters.disguise", "_disguise.csv"),
+    "unreal": ("musicue.exporters.unreal", "_unreal.json"),
 }
 
 
