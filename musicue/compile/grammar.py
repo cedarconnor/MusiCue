@@ -19,6 +19,8 @@ from pydantic import BaseModel, Field
 
 
 class GrammarTrack(BaseModel):
+    model_config = {"extra": "allow"}
+
     name: str
     type: str
     source: str
