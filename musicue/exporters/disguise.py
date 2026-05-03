@@ -50,12 +50,12 @@ def export(cuesheet: CueSheet, out_path: Path, fps: float = 25.0, **opts) -> Non
                     "label": "|".join(ev.get("tags", [])),
                 })
         elif track.type == "step":
-            for ev in track.events:
+            for i, ev in enumerate(track.events):
                 t = float(ev["t"])
                 label = str(ev.get("label", ""))
                 rows.append({
                     "timecode": _seconds_to_timecode(t, fps),
-                    "cue_name": f"section_{label}",
+                    "cue_name": f"section_{label}_{i+1:04d}",
                     "track": track.name,
                     "type": "step",
                     "intensity": "1.0",

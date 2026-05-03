@@ -94,8 +94,8 @@ def export(cuesheet: CueSheet, out_path: Path, **opts) -> None:
                 from_val = float(ev.get("from", 0.0))
                 to_val = float(ev.get("to", 1.0))
                 shape = str(ev.get("shape", "ease_in_out"))
-                keys.append({"time": t_start, "value": from_val, "interp": shape})
-                keys.append({"time": t_end, "value": to_val, "interp": "linear"})
+                keys.append({"time": t_start, "value": from_val, "interp": "linear"})
+                keys.append({"time": t_end, "value": to_val, "interp": shape})
             tracks.append(
                 {
                     "name": track.name,
