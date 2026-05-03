@@ -1,0 +1,51 @@
+name: character_animation
+
+hierarchy_weights:
+  macro: 1.2
+  meso:  1.5
+  micro: 0.6
+
+tracks:
+  - name: vocal_phrase
+    type: envelope
+    source: phrases.vocals
+    score:
+      base: "max(energy_curve)"
+    envelope: {a: 0.40, d: 0.30, s: 0.8, r: 0.80}
+    shape_curve_from: "energy_curve"
+
+  - name: melody_phrase
+    type: envelope
+    source: phrases.other
+    score:
+      base: "max(energy_curve)"
+    envelope: {a: 0.35, d: 0.25, s: 0.6, r: 0.60}
+
+  - name: downbeat
+    type: impulse
+    source: beats
+    filter: "is_downbeat == true"
+    score:
+      base: 0.7
+    envelope: {a: 0.05, d: 0.30, s: 0.0, r: 0.0}
+
+  - name: accent
+    type: impulse
+    source: onsets.vocals
+    score:
+      base: "strength"
+    rarity:
+      window_sec: 2.0
+      decay: 6.0
+    envelope: {a: 0.02, d: 0.25, s: 0.2, r: 0.40}
+
+  - name: section_change
+    type: step
+    source: sections
+    emit: section_boundary
+
+  - name: energy
+    type: continuous
+    source: curves.rms_vocals
+    smoothing: {kind: ema, tau_sec: 0.5}
+    normalize: {kind: percentile, low: 5, high: 95}

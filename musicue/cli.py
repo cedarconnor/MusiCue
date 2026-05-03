@@ -133,5 +133,54 @@ def plot(
         typer.echo(f"Plot saved to {out}")
 
 
+@app.command()
+def listen(
+    cuesheet_path: Path = typer.Argument(..., help="Path to cuesheet.json"),
+    audio: Optional[Path] = typer.Option(
+        None, "--audio", "-a", help="Original audio to mix under clicks"
+    ),
+    out: Optional[Path] = typer.Option(None, "--out", "-o", help="Output WAV path"),
+) -> None:
+    """Render QC click-track: stereo-placed clicks per event, optionally over source audio."""
+    from musicue.listen import render_click_track
+    from musicue.schemas import CueSheet
+
+    cs = CueSheet.model_validate_json(cuesheet_path.read_text())
+    out_path = out or cuesheet_path.parent / "clicks.wav"
+    render_click_track(cs, audio, out_path)
+    typer.echo(f"Click track written to {out_path}")
+
+
+@app.command()
+def diff(
+    cuesheet_a: Path = typer.Argument(..., help="First cuesheet.json"),
+    cuesheet_b: Path = typer.Argument(..., help="Second cuesheet.json"),
+    out: Optional[Path] = typer.Option(None, "--out", "-o", help="Save JSON diff report"),
+) -> None:
+    """Compare two cuesheets: per-track event count deltas and timing matches."""
+    import json
+
+    from musicue.diff import diff_cuesheets
+    from musicue.schemas import CueSheet
+
+    cs_a = CueSheet.model_validate_json(cuesheet_a.read_text())
+    cs_b = CueSheet.model_validate_json(cuesheet_b.read_text())
+    report = diff_cuesheets(cs_a, cs_b)
+
+    typer.echo(
+        f"{'Track':<20} {'A':>6} {'B':>6} {'Added':>7} {'Removed':>9} {'Matched':>9}"
+    )
+    typer.echo("-" * 60)
+    for name, stats in report.items():
+        typer.echo(
+            f"{name:<20} {stats['count_a']:>6} {stats['count_b']:>6} "
+            f"{stats['added']:>7} {stats['removed']:>9} {stats['matched']:>9}"
+        )
+
+    if out:
+        out.write_text(json.dumps(report, indent=2))
+        typer.echo(f"\nDiff report saved to {out}")
+
+
 if __name__ == "__main__":
     app()
