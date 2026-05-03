@@ -67,3 +67,24 @@ def test_export_unknown_target_exits_nonzero(tmp_path):
     r = cli("export", str(cuesheet_path), "--target", "nonexistent_format",
             "--out", str(tmp_path / "out"))
     assert r.returncode != 0
+
+
+def test_render_batch_help():
+    r = cli("render", "--help")
+    assert r.returncode == 0
+    assert "--batch" in r.stdout or "batch" in r.stdout.lower()
+
+
+def test_render_batch_requires_directory(tmp_path):
+    """--batch with a file path (not directory) should exit nonzero."""
+    # Create a real file so the test exercises the directory check, not file existence
+    fake_audio = tmp_path / "nofile.wav"
+    fake_audio.write_bytes(b"")
+    r = cli("render", str(fake_audio), "--batch")
+    assert r.returncode != 0
+
+
+def test_render_batch_empty_directory_errors(tmp_path):
+    """--batch on empty directory should error."""
+    r = cli("render", str(tmp_path), "--batch")
+    assert r.returncode != 0

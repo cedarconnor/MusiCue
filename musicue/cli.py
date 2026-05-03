@@ -83,14 +83,21 @@ def export(
 
 @app.command()
 def render(
-    song: Path = typer.Argument(..., help="Input audio file"),
+    song: Path = typer.Argument(..., help="Input audio file or directory (with --batch)"),
     grammar: str = typer.Option("concert_visuals", "--grammar", "-g"),
     target: str = typer.Option("csv", "--target", "-t"),
-    out: Optional[Path] = typer.Option(None, "--out", "-o"),
+    out: Optional[Path] = typer.Option(None, "--out", "-o", help="Output file or directory"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    batch: bool = typer.Option(
+        False, "--batch", help="Process all audio files in SONG directory"
+    ),
+    workers: int = typer.Option(
+        4, "--workers", "-w", help="Number of parallel workers for batch mode"
+    ),
 ) -> None:
-    """Convenience: analyze - compile - export in one shot."""
+    """Convenience: analyze -> compile -> export in one shot. Use --batch to process a directory."""
     import importlib
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     from musicue.analysis.pipeline import run_analysis
     from musicue.compile.compiler import compile_analysis
@@ -101,12 +108,46 @@ def render(
         raise typer.Exit(code=1)
 
     cfg = MusiCueConfig.from_yaml(config) if config else MusiCueConfig()
-    analysis = run_analysis(song, cfg)
-    cuesheet = compile_analysis(analysis, grammar=grammar)
     module_name, suffix = _EXPORTERS[target]
-    out_path = out or Path(song.stem + suffix)
-    importlib.import_module(module_name).export(cuesheet, out_path)
-    typer.echo(f"Rendered to {out_path}")
+
+    def _process_one(audio_path: Path) -> Path:
+        analysis = run_analysis(audio_path, cfg)
+        cuesheet = compile_analysis(analysis, grammar=grammar)
+        if batch and out:
+            out_file = out / (audio_path.stem + suffix)
+        elif out:
+            out_file = out
+        else:
+            out_file = audio_path.parent / (audio_path.stem + suffix)
+        importlib.import_module(module_name).export(cuesheet, out_file)
+        return out_file
+
+    if batch:
+        if not song.is_dir():
+            typer.echo("--batch requires SONG to be a directory", err=True)
+            raise typer.Exit(code=1)
+        audio_files = [
+            p for p in song.iterdir()
+            if p.suffix.lower() in (".wav", ".flac", ".mp3", ".aiff")
+        ]
+        if not audio_files:
+            typer.echo(f"No audio files found in {song}", err=True)
+            raise typer.Exit(code=1)
+        if out:
+            out.mkdir(parents=True, exist_ok=True)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(_process_one, p): p for p in audio_files}
+            for future in as_completed(futures):
+                src = futures[future]
+                try:
+                    result = future.result()
+                    typer.echo(f"  {src.name} -> {result.name}")
+                except Exception as e:
+                    typer.echo(f"  ERROR {src.name}: {e}", err=True)
+        typer.echo(f"Batch complete: {len(audio_files)} files processed.")
+    else:
+        result = _process_one(song)
+        typer.echo(f"Rendered to {result}")
 
 
 @app.command()
