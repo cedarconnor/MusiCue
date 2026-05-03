@@ -46,6 +46,22 @@ def _jsx_escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
 
+def _rescale_to_unit(values: list[float]) -> list[float]:
+    """Rescale values to [0, 1] based on observed min/max.
+
+    Continuous tracks may arrive already-normalized (e.g. percentile-normalized
+    in the grammar) or as raw signal (e.g. LUFS in [-70, 0]). Auto-rescaling per
+    track handles both without an explicit range hint.
+    """
+    if not values:
+        return []
+    lo = min(values)
+    hi = max(values)
+    if hi == lo:
+        return [0.5] * len(values)
+    return [(v - lo) / (hi - lo) for v in values]
+
+
 def _var_name(track_name: str) -> str:
     """Translate a track name into a JS-safe identifier suffix.
 
@@ -110,9 +126,10 @@ def export(cuesheet: CueSheet, out_path: Path, fps: float = 24.0, **opts) -> Non
 
         if track.type == "continuous" and track.values and track.hop_sec:
             hop = track.hop_sec
-            for i, val in enumerate(track.values):
+            unit_values = _rescale_to_unit(track.values)
+            for i, _val in enumerate(track.values):
                 t = i * hop
-                slider_val = max(0.0, min(100.0, (val + 70) / 70 * 100))
+                slider_val = max(0.0, min(100.0, unit_values[i] * 100))
                 a(f"  {slider_ref}.setValueAtTime({t:.4f}, {slider_val:.2f});")
 
         elif track.type == "impulse":

@@ -101,3 +101,42 @@ def test_ae_export_handles_leading_digit_track_name(tmp_path):
     assert "var layer__808" in content
     # Original number must NOT appear as a variable identifier prefix
     assert "var layer_808" not in content
+
+
+def test_ae_continuous_normalized_input_does_not_saturate(tmp_path):
+    """Continuous values in [0, 1] should NOT all map to slider 100."""
+    from musicue.exporters.aftereffects import export
+    from musicue.schemas import CueSheet, CueTrack
+
+    cs = CueSheet(
+        source_sha256="x",
+        grammar="g",
+        duration_sec=1.0,
+        tempo_map=[],
+        tracks=[
+            CueTrack(
+                name="energy",
+                type="continuous",
+                timescale="macro",
+                hop_sec=0.2,
+                values=[0.0, 0.25, 0.5, 0.75, 1.0],
+            ),
+        ],
+    )
+    out = tmp_path / "cuesheet.jsx"
+    export(cs, out)
+    content = out.read_text(encoding="utf-8")
+    # Should see varying slider values, not all 100.00
+    import re
+    energy_block_match = re.search(
+        r"// Track: energy.*?(?=// Track:|app\.endUndoGroup)",
+        content, re.DOTALL,
+    )
+    assert energy_block_match, "Energy track block not found"
+    energy_block = energy_block_match.group(0)
+    energy_calls = re.findall(r"setValueAtTime\([\d.]+,\s*([\d.]+)\)", energy_block)
+    energy_values = [float(v) for v in energy_calls]
+    # 5 values rescaled: should span 0..100, not all be 100
+    assert min(energy_values) == 0.0
+    assert max(energy_values) == 100.0
+    assert len(set(energy_values)) > 1  # not flatlined

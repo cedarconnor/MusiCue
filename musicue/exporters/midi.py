@@ -56,6 +56,22 @@ def _ticks(seconds: float, ticks_per_beat: int, tempo_us: int) -> int:
     return max(0, int(round(beats * ticks_per_beat)))
 
 
+def _rescale_to_unit(values: list[float]) -> list[float]:
+    """Rescale values to [0, 1] based on observed min/max.
+
+    Continuous tracks may arrive already-normalized (e.g. percentile-normalized
+    in the grammar) or as raw signal (e.g. LUFS in [-70, 0]). Auto-rescaling per
+    track handles both without an explicit range hint.
+    """
+    if not values:
+        return []
+    lo = min(values)
+    hi = max(values)
+    if hi == lo:
+        return [0.5] * len(values)
+    return [(v - lo) / (hi - lo) for v in values]
+
+
 def export(cuesheet: CueSheet, out_path: Path, ticks_per_beat: int = 480, **opts) -> None:
     bpm = 120.0
     if cuesheet.tempo_map:
@@ -114,10 +130,10 @@ def export(cuesheet: CueSheet, out_path: Path, ticks_per_beat: int = 480, **opts
             # Stride to keep target_hz samples/sec from a 1/hop samples/sec source.
             # When source rate <= target rate (hop * target_hz >= 1), emit every frame.
             step = max(1, int(round(1.0 / (target_hz * hop))))
+            unit_values = _rescale_to_unit(track.values)
             for i in range(0, len(track.values), step):
                 t = i * hop
-                val = float(track.values[i])
-                cc_val = max(0, min(127, int((val + 70) / 70 * 127)))
+                cc_val = max(0, min(127, int(unit_values[i] * 127)))
                 tick = _ticks(t, ticks_per_beat, tempo_us)
                 msgs.append((tick, mido.Message("control_change", channel=channel,
                                                 control=_ENERGY_CC, value=cc_val, time=0)))
