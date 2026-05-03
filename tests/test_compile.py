@@ -226,6 +226,13 @@ def test_grammar_compiler_near_downbeat_multiplier_skips_when_far():
     assert kick_track.events[0]["strength"] == pytest.approx(1.0, abs=0.01)
 
 
+def test_compile_loads_default_grammar_from_any_cwd(tmp_path, monkeypatch):
+    """Built-in grammar must load regardless of CWD."""
+    monkeypatch.chdir(tmp_path)
+    cs = compile_analysis(_make_analysis(), grammar="concert_visuals")
+    assert cs.grammar == "concert_visuals"
+
+
 def test_grammar_compiler_loads_from_file(tmp_path):
     import yaml
 
