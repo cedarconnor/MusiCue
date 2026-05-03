@@ -44,12 +44,26 @@ class Grammar(BaseModel):
     clap_prompts: list[str] | None = None
 
 
+# Module-level constant -- resolves to <package>/grammars/. Using
+# ``Path(__file__)`` instead of CWD ensures built-in grammar names work
+# regardless of where the CLI / tests are invoked from.
+PACKAGE_GRAMMARS_DIR = Path(__file__).resolve().parent.parent / "grammars"
+
+
 def load_grammar(
-    name_or_path: str | Path, grammars_dir: Path = Path("grammars")
+    name_or_path: str | Path, grammars_dir: Path | None = None
 ) -> Grammar:
-    """Load a grammar from a YAML file path or by name (resolved against ``grammars_dir``)."""
+    """Load and validate a grammar from a YAML file or a built-in name.
+
+    If ``name_or_path`` has no suffix, it is resolved as
+    ``<grammars_dir>/<name>.yaml``. When ``grammars_dir`` is ``None``, the
+    packaged grammars directory (:data:`PACKAGE_GRAMMARS_DIR`) is used so
+    built-in grammar names work regardless of the caller's CWD.
+    """
     path = Path(name_or_path)
     if not path.suffix:
+        if grammars_dir is None:
+            grammars_dir = PACKAGE_GRAMMARS_DIR
         path = grammars_dir / f"{name_or_path}.yaml"
     if not path.exists():
         raise FileNotFoundError(f"Grammar file not found: {path}")

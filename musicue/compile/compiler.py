@@ -175,24 +175,18 @@ def _compile_impulse_track(
         key=lambda e: float(e.get("t", e.get("t_start", 0.0))),
     )
 
-    # Precompute downbeat times once so each event's `near_downbeat` flag is
-    # cheap to evaluate. The DSL form is `near_downbeat(<seconds>)`, but the
-    # captured window isn't threaded through `evaluate_filter` (which is
-    # stateless on the event); we hardcode the default 0.05s window here.
-    # When/if the DSL contract grows to pass the window through, replace this
-    # with a per-call check.
+    # Precompute downbeat times once and tag each event with its distance to
+    # the nearest downbeat. The filter DSL's ``near_downbeat(<seconds>)`` form
+    # reads ``downbeat_distance_sec`` and compares against its captured
+    # argument so different windows produce different results.
     downbeat_times = [b.t for b in analysis.beats if b.is_downbeat]
-    _NEAR_DOWNBEAT_WINDOW_SEC = 0.05
 
     for ev in sorted_events:
         t = float(ev.get("t", ev.get("t_start", 0.0)))
         ev["section_label"] = _section_label_at(t, analysis)
         if downbeat_times:
-            nearest = min(abs(t - dt) for dt in downbeat_times)
-            ev["near_downbeat"] = nearest <= _NEAR_DOWNBEAT_WINDOW_SEC
-            ev["downbeat_distance_sec"] = nearest
+            ev["downbeat_distance_sec"] = min(abs(t - dt) for dt in downbeat_times)
         else:
-            ev["near_downbeat"] = False
             ev["downbeat_distance_sec"] = float("inf")
 
         if not evaluate_filter(track_cfg.filter, ev):
@@ -328,7 +322,7 @@ def _compile_envelope_track(
 def compile_analysis(
     analysis: AnalysisResult,
     grammar: str | Grammar = "concert_visuals",
-    grammars_dir: Path = Path("grammars"),
+    grammars_dir: Path | None = None,
 ) -> CueSheet:
     """Compile an :class:`AnalysisResult` into a :class:`CueSheet` per ``grammar``.
 
@@ -340,8 +334,10 @@ def compile_analysis(
         Either a grammar name (resolved against ``grammars_dir``) or an
         already-loaded :class:`Grammar`.
     grammars_dir:
-        Directory used to resolve grammar names. Ignored when ``grammar``
-        is a :class:`Grammar` instance.
+        Directory used to resolve grammar names. When ``None`` (the
+        default) the packaged grammars directory is used so built-in
+        grammars load regardless of CWD. Ignored when ``grammar`` is a
+        :class:`Grammar` instance.
     """
     if isinstance(grammar, str):
         grammar = load_grammar(grammar, grammars_dir=grammars_dir)

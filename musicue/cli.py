@@ -172,10 +172,18 @@ def diff(
     )
     typer.echo("-" * 60)
     for name, stats in report.items():
-        typer.echo(
-            f"{name:<20} {stats['count_a']:>6} {stats['count_b']:>6} "
-            f"{stats['added']:>7} {stats['removed']:>9} {stats['matched']:>9}"
-        )
+        if stats.get("type") == "continuous":
+            mae = stats.get("mean_abs_diff")
+            mae_str = f"{mae:.3f}" if mae is not None else "n/a"
+            typer.echo(
+                f"{name:<20} {stats['count_a']:>6} {stats['count_b']:>6} "
+                f"{'continuous':>7} mean_abs_diff={mae_str}"
+            )
+        else:
+            typer.echo(
+                f"{name:<20} {stats['count_a']:>6} {stats['count_b']:>6} "
+                f"{stats['added']:>7} {stats['removed']:>9} {stats['matched']:>9}"
+            )
 
     if out:
         out.write_text(json.dumps(report, indent=2))

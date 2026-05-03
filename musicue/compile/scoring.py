@@ -5,20 +5,27 @@ decide whether an event matches a rule and how strongly it should fire.
 
 Filter DSL (`evaluate_filter`)
 ------------------------------
-The filter expression is a single string evaluated against an event dict. The
-following forms are supported (any unrecognized form returns ``True`` so that
-unknown filters degrade gracefully):
+The filter expression is a single string evaluated against an event dict.
+Each expression must match exactly one of the supported forms (we use
+``re.fullmatch`` so partial-prefix matches are rejected). Unknown
+expressions log a warning and return ``False`` so silently-broken filters
+fail loud rather than letting every event pass.
 
 - ``None`` -> always matches (returns ``True``).
 - ``field == 'value'`` -> string equality on ``event[field]``.
+- ``field != 'value'`` -> string inequality on ``event[field]``.
 - ``field == true`` / ``field == false`` -> boolean check on ``event[field]``.
-- ``field > value`` -> numeric strict-greater-than on ``event[field]``.
+- ``field > value`` / ``field >= value`` -> numeric comparison on ``event[field]``.
+- ``field < value`` / ``field <= value`` -> numeric comparison on ``event[field]``.
 - ``any_label('label', min_score=X)`` -> ``True`` when any entry in
   ``event['labels']`` has matching ``label`` and ``score >= X``.
-- ``near_downbeat(seconds)`` -> reads the precomputed ``event['near_downbeat']``
-  flag. The compiler is responsible for setting that flag using the actual
-  proximity value before invoking the filter (this function is a stub that
-  trusts the boolean).
+- ``near_downbeat(seconds)`` -> ``True`` when the event's
+  ``downbeat_distance_sec`` (set by the compiler) is within ``seconds``.
+  Returns ``False`` when no downbeat distance is recorded on the event.
+
+Compound expressions (``and``, ``or``) are not supported: use multiple
+multiplier rules with separate ``when`` clauses for AND, or define
+separate tracks for OR.
 
 Scoring (`compute_score`)
 -------------------------
@@ -49,18 +56,32 @@ smaller bonus, encouraging the compiler to spread emissions over time.
 
 from __future__ import annotations
 
+import logging
 import math
 import re
 from typing import Any
 
+log = logging.getLogger(__name__)
+
 # Precompiled regexes for the DSL forms.
 # Field name patterns accept dotted paths (e.g. ``ramp_evidence.spectral_flux_rise``)
 # and are walked via :func:`_get_dotted`.
+#
+# All filter regexes are matched via :func:`re.Pattern.fullmatch` so a partial
+# prefix (e.g. ``drum_class == 'kick' and strength > 0.5``) does not silently
+# match the simple ``field == 'value'`` shape.
 _RE_ANY_LABEL = re.compile(r"any_label\('([^']+)',\s*min_score=([\d.]+)\)")
 _RE_NEAR_DOWNBEAT = re.compile(r"near_downbeat\(([\d.]+)\)")
 _RE_FIELD_EQ_STR = re.compile(r"([\w.]+)\s*==\s*'([^']*)'")
+_RE_FIELD_NE_STR = re.compile(r"([\w.]+)\s*!=\s*'([^']*)'")
 _RE_FIELD_EQ_BOOL = re.compile(r"([\w.]+)\s*==\s*(true|false)")
+# Two-character comparison operators must be checked BEFORE their single-char
+# cousins so ``>=`` doesn't get parsed as ``>`` (consuming the ``>`` and
+# leaving ``= 0.5`` unmatched).
+_RE_FIELD_GE = re.compile(r"([\w.]+)\s*>=\s*([\d.]+)")
+_RE_FIELD_LE = re.compile(r"([\w.]+)\s*<=\s*([\d.]+)")
 _RE_FIELD_GT = re.compile(r"([\w.]+)\s*>\s*([\d.]+)")
+_RE_FIELD_LT = re.compile(r"([\w.]+)\s*<\s*([\d.]+)")
 _RE_LABEL_SCORE = re.compile(r"label_score\('([^']+)'\)")
 
 
@@ -84,15 +105,15 @@ def _get_dotted(event: dict, path: str, default: Any = None) -> Any:
 def evaluate_filter(expr: str | None, event: dict) -> bool:
     """Evaluate a filter expression against an event dict.
 
-    Returns ``True`` when the event matches the filter. Unknown expressions
-    return ``True`` so the rule fires; this is intentional so grammars can
-    use forward-compatible DSL features without breaking older runtimes.
+    Returns ``True`` when the event matches the filter. Unknown
+    expressions log a warning and return ``False`` so silently-broken
+    filters fail loud rather than passing every event.
     """
     if expr is None:
         return True
 
     # any_label('label', min_score=X)
-    m = _RE_ANY_LABEL.match(expr)
+    m = _RE_ANY_LABEL.fullmatch(expr)
     if m:
         target_label, min_score = m.group(1), float(m.group(2))
         return any(
@@ -100,25 +121,58 @@ def evaluate_filter(expr: str | None, event: dict) -> bool:
             for lbl in event.get("labels", [])
         )
 
-    # near_downbeat(seconds) -- relies on the compiler having set the flag.
-    m = _RE_NEAR_DOWNBEAT.match(expr)
+    # near_downbeat(seconds) -- compare the event's recorded downbeat
+    # distance to the captured window. Falls closed when no distance is
+    # available.
+    m = _RE_NEAR_DOWNBEAT.fullmatch(expr)
     if m:
-        return bool(event.get("near_downbeat", False))
+        window = float(m.group(1))
+        distance = event.get("downbeat_distance_sec")
+        if distance is None:
+            return False
+        try:
+            return float(distance) <= window
+        except (TypeError, ValueError):
+            return False
 
     # field == 'value' (supports dotted paths)
-    m = _RE_FIELD_EQ_STR.match(expr)
+    m = _RE_FIELD_EQ_STR.fullmatch(expr)
     if m:
         field, value = m.group(1), m.group(2)
         return str(_get_dotted(event, field, "")) == value
 
+    # field != 'value' (supports dotted paths)
+    m = _RE_FIELD_NE_STR.fullmatch(expr)
+    if m:
+        field, value = m.group(1), m.group(2)
+        return str(_get_dotted(event, field, "")) != value
+
     # field == true/false (supports dotted paths)
-    m = _RE_FIELD_EQ_BOOL.match(expr)
+    m = _RE_FIELD_EQ_BOOL.fullmatch(expr)
     if m:
         field, want_true = m.group(1), m.group(2) == "true"
         return bool(_get_dotted(event, field, False)) == want_true
 
+    # field >= value (supports dotted paths) -- check before ``>``.
+    m = _RE_FIELD_GE.fullmatch(expr)
+    if m:
+        field, value = m.group(1), float(m.group(2))
+        try:
+            return float(_get_dotted(event, field, 0)) >= value
+        except (TypeError, ValueError):
+            return False
+
+    # field <= value (supports dotted paths) -- check before ``<``.
+    m = _RE_FIELD_LE.fullmatch(expr)
+    if m:
+        field, value = m.group(1), float(m.group(2))
+        try:
+            return float(_get_dotted(event, field, 0)) <= value
+        except (TypeError, ValueError):
+            return False
+
     # field > value (supports dotted paths)
-    m = _RE_FIELD_GT.match(expr)
+    m = _RE_FIELD_GT.fullmatch(expr)
     if m:
         field, value = m.group(1), float(m.group(2))
         try:
@@ -126,8 +180,18 @@ def evaluate_filter(expr: str | None, event: dict) -> bool:
         except (TypeError, ValueError):
             return False
 
-    # Unknown expression: pass through so unknown DSL doesn't silently drop events.
-    return True
+    # field < value (supports dotted paths)
+    m = _RE_FIELD_LT.fullmatch(expr)
+    if m:
+        field, value = m.group(1), float(m.group(2))
+        try:
+            return float(_get_dotted(event, field, 0)) < value
+        except (TypeError, ValueError):
+            return False
+
+    # Unknown expression: fail-loud so silently-broken filters get noticed.
+    log.warning("Unrecognized filter expression: %r -- treating as False.", expr)
+    return False
 
 
 def _resolve_base(base: Any, event: dict) -> float:

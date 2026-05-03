@@ -121,3 +121,78 @@ def test_filter_dotted_field_missing_returns_false():
     # Missing dotted path -> default 0 -> 0 > 0.4 is False
     event = {}
     assert evaluate_filter("ramp_evidence.spectral_flux_rise > 0.4", event) is False
+
+
+# --- near_downbeat respects its argument ---
+
+
+def test_filter_near_downbeat_within_window():
+    event = {"downbeat_distance_sec": 0.03}
+    assert evaluate_filter("near_downbeat(0.05)", event) is True
+
+
+def test_filter_near_downbeat_outside_window():
+    event = {"downbeat_distance_sec": 0.10}
+    assert evaluate_filter("near_downbeat(0.05)", event) is False
+
+
+def test_filter_near_downbeat_respects_argument():
+    event = {"downbeat_distance_sec": 0.08}
+    # 0.05s window: distance > window -> False
+    assert evaluate_filter("near_downbeat(0.05)", event) is False
+    # 0.10s window: same distance -> True
+    assert evaluate_filter("near_downbeat(0.10)", event) is True
+
+
+def test_filter_near_downbeat_no_distance_info_fails_closed():
+    event: dict = {}  # no downbeat_distance_sec
+    assert evaluate_filter("near_downbeat(0.05)", event) is False
+
+
+# --- new comparison operators ---
+
+
+def test_filter_gte_true():
+    assert evaluate_filter("strength >= 0.5", {"strength": 0.7}) is True
+
+
+def test_filter_gte_false():
+    assert evaluate_filter("strength >= 0.5", {"strength": 0.3}) is False
+
+
+def test_filter_lt():
+    assert evaluate_filter("strength < 0.5", {"strength": 0.3}) is True
+    assert evaluate_filter("strength < 0.5", {"strength": 0.7}) is False
+
+
+def test_filter_lte():
+    assert evaluate_filter("strength <= 0.5", {"strength": 0.5}) is True
+    assert evaluate_filter("strength <= 0.5", {"strength": 0.6}) is False
+
+
+def test_filter_ne_string():
+    assert evaluate_filter("drum_class != 'kick'", {"drum_class": "snare"}) is True
+    assert evaluate_filter("drum_class != 'kick'", {"drum_class": "kick"}) is False
+
+
+# --- fullmatch + unknown-expression behavior ---
+
+
+def test_filter_unknown_expression_returns_false(caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        result = evaluate_filter("strength <=>=> 0.5 garbage", {"strength": 0.7})
+    assert result is False
+    assert any("Unrecognized" in rec.message for rec in caplog.records)
+
+
+def test_filter_compound_expression_does_not_silently_pass():
+    # ``and`` is not supported; with fullmatch the prefix-match ``drum_class
+    # == 'kick'`` no longer hides the second clause, so the whole
+    # expression is treated as unknown and fails closed.
+    result = evaluate_filter(
+        "drum_class == 'kick' and strength > 0.5",
+        {"drum_class": "kick", "strength": 0.1},
+    )
+    assert result is False
