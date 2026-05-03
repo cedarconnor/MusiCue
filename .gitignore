@@ -11,3 +11,5 @@ build/
 *.tmp
 cache/
 models/
+DESIGN.md
+docs/
