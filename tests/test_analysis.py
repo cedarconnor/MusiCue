@@ -3,7 +3,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from musicue.analysis.curves import compute_lufs_curve, compute_rms_curve
+from musicue.analysis.curves import (
+    compute_lufs_curve,
+    compute_rms_curve,
+    compute_spectral_centroid_curve,
+    compute_spectral_flux_curve,
+    compute_stereo_width_pan,
+)
 from musicue.analysis.onsets import detect_onsets
 from musicue.analysis.pipeline import run_analysis
 from musicue.analysis.separation import demucs_version, separate
@@ -110,6 +116,23 @@ def test_rms_curve_non_negative(synthetic_wav):
     assert all(v >= 0.0 for v in curve["values"])
 
 
+def test_spectral_centroid_curve(synthetic_wav):
+    c = compute_spectral_centroid_curve(synthetic_wav, hop_sec=0.04)
+    assert len(c["values"]) > 0
+    assert all(v >= 0 for v in c["values"])
+
+
+def test_spectral_flux_curve(synthetic_wav):
+    c = compute_spectral_flux_curve(synthetic_wav, hop_sec=0.04)
+    assert len(c["values"]) > 0
+    assert all(v >= 0 for v in c["values"])
+
+
+def test_stereo_width_pan_on_mono_returns_zero(synthetic_wav):
+    result = compute_stereo_width_pan(synthetic_wav, hop_sec=0.04)
+    # synthetic_wav is mono; width should be 0 or near 0
+    assert "width" in result and "pan" in result
+    assert all(abs(v) < 0.01 for v in result["width"]["values"])
 
 
 def _make_cfg(tmp_path):
@@ -157,6 +180,55 @@ def test_pipeline_caches_and_skips_demucs_on_rerun(tmp_path, synthetic_wav):
         run_analysis(synthetic_wav, cfg)
         run_analysis(synthetic_wav, cfg)
     assert mock_sep.call_count == 1  # demucs ran only once
+
+
+def test_m1_pipeline_includes_beats_and_sections(tmp_path, synthetic_wav):
+    cfg = _make_cfg(tmp_path)
+
+    with patch("musicue.analysis.pipeline.separate", side_effect=_fake_separate):
+        with patch("musicue.analysis.pipeline.detect_structure") as mock_struct:
+            mock_struct.return_value = {
+                "tempo": {
+                    "bpm_global": 120.0,
+                    "bpm_curve": [{"t": 0.0, "bpm": 120.0}],
+                    "time_signature": [4, 4],
+                },
+                "beats": [
+                    {
+                        "t": 0.5,
+                        "beat_in_bar": 1,
+                        "bar": 1,
+                        "is_downbeat": True,
+                        "confidence": 0.9,
+                        "timescale": "micro",
+                    },
+                ],
+                "sections": [
+                    {
+                        "start": 0.0,
+                        "end": 5.0,
+                        "label": "intro",
+                        "confidence": 0.9,
+                        "timescale": "macro",
+                    },
+                ],
+            }
+            result = run_analysis(synthetic_wav, cfg)
+
+    assert result.tempo is not None
+    assert result.tempo.bpm_global == pytest.approx(120.0)
+    assert len(result.beats) == 1
+    assert result.beats[0].is_downbeat is True
+    assert len(result.sections) == 1
+    assert result.sections[0].label == "intro"
+
+
+def test_m1_pipeline_includes_spectral_curves(tmp_path, synthetic_wav):
+    cfg = _make_cfg(tmp_path)
+    with patch("musicue.analysis.pipeline.separate", side_effect=_fake_separate):
+        result = run_analysis(synthetic_wav, cfg)
+    assert "spectral_centroid" in result.curves
+    assert "spectral_flux" in result.curves
 
 
 @pytest.mark.integration

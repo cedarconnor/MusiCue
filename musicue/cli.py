@@ -102,5 +102,36 @@ def render(
     typer.echo(f"Rendered to {out_path}")
 
 
+@app.command()
+def inspect(
+    analysis_path: Path = typer.Argument(..., help="Path to analysis.json"),
+    latent: bool = typer.Option(
+        False, "--latent", help="Show Music2Latent correlations (requires m2l in analysis)"
+    ),
+) -> None:
+    """Print a human-readable summary of analysis.json."""
+    import json
+
+    from musicue.inspect import summarize
+
+    summary = summarize(analysis_path)
+    typer.echo(json.dumps(summary, indent=2))
+
+
+@app.command()
+def plot(
+    analysis_path: Path = typer.Argument(..., help="Path to analysis.json"),
+    out: Optional[Path] = typer.Option(
+        None, "--out", "-o", help="Save plot to file instead of showing"
+    ),
+) -> None:
+    """Render a matplotlib timeline of the analysis."""
+    from musicue.inspect import plot_timeline
+
+    plot_timeline(analysis_path, out_path=out)
+    if out:
+        typer.echo(f"Plot saved to {out}")
+
+
 if __name__ == "__main__":
     app()

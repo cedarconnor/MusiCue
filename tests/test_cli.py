@@ -37,6 +37,17 @@ def test_render_help():
     assert r.returncode == 0
 
 
+def test_inspect_help():
+    r = cli("inspect", "--help")
+    assert r.returncode == 0
+    assert "analysis" in r.stdout.lower()
+
+
+def test_plot_help():
+    r = cli("plot", "--help")
+    assert r.returncode == 0
+
+
 def test_export_unknown_target_exits_nonzero(tmp_path):
     from musicue.schemas import CueSheet
     cs = CueSheet(source_sha256="x", grammar="g", duration_sec=1.0, tempo_map=[], tracks=[])
