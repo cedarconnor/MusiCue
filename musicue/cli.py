@@ -15,6 +15,7 @@ _EXPORTERS = {
     "touchdesigner": ("musicue.exporters.touchdesigner", ".csv"),
     "osc": ("musicue.exporters.osc", "_osc.json"),
     "houdini": ("musicue.exporters.houdini", "_houdini.csv"),
+    "disguise": ("musicue.exporters.disguise", "_disguise.csv"),
 }
 
 
