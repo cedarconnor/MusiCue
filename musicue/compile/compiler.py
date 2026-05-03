@@ -175,9 +175,25 @@ def _compile_impulse_track(
         key=lambda e: float(e.get("t", e.get("t_start", 0.0))),
     )
 
+    # Precompute downbeat times once so each event's `near_downbeat` flag is
+    # cheap to evaluate. The DSL form is `near_downbeat(<seconds>)`, but the
+    # captured window isn't threaded through `evaluate_filter` (which is
+    # stateless on the event); we hardcode the default 0.05s window here.
+    # When/if the DSL contract grows to pass the window through, replace this
+    # with a per-call check.
+    downbeat_times = [b.t for b in analysis.beats if b.is_downbeat]
+    _NEAR_DOWNBEAT_WINDOW_SEC = 0.05
+
     for ev in sorted_events:
         t = float(ev.get("t", ev.get("t_start", 0.0)))
         ev["section_label"] = _section_label_at(t, analysis)
+        if downbeat_times:
+            nearest = min(abs(t - dt) for dt in downbeat_times)
+            ev["near_downbeat"] = nearest <= _NEAR_DOWNBEAT_WINDOW_SEC
+            ev["downbeat_distance_sec"] = nearest
+        else:
+            ev["near_downbeat"] = False
+            ev["downbeat_distance_sec"] = float("inf")
 
         if not evaluate_filter(track_cfg.filter, ev):
             continue

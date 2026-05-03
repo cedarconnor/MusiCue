@@ -162,6 +162,70 @@ def test_grammar_compiler_cooldown_suppresses_close_events():
     assert track.events[1]["t"] == pytest.approx(10.0)
 
 
+def test_grammar_compiler_near_downbeat_multiplier_fires():
+    # Setup: kick at t=1.0 with downbeat at t=1.0 -- should get the 1.2x boost
+    from musicue.schemas import BeatEvent
+
+    grammar = Grammar(
+        name="test",
+        hierarchy_weights={"macro": 1.0, "meso": 1.0, "micro": 1.0},
+        tracks=[
+            GrammarTrack(
+                name="kick",
+                type="impulse",
+                source="onsets.drums",
+                filter="drum_class == 'kick'",
+                score={
+                    "base": "strength",
+                    "multiplier": [{"when": "near_downbeat(0.05)", "factor": 1.2}],
+                },
+                envelope={"a": 0.005, "d": 0.12, "s": 0.0, "r": 0.0},
+            )
+        ],
+    )
+    onsets = [OnsetEvent(t=1.0, strength=1.0, drum_class="kick")]
+    analysis = _make_analysis(onsets=onsets)
+    # Attach a downbeat at exactly t=1.0
+    analysis.beats = [
+        BeatEvent(t=1.0, beat_in_bar=1, bar=1, is_downbeat=True, confidence=0.9, timescale="micro"),
+    ]
+    cs = compile_analysis(analysis, grammar=grammar)
+    kick_track = next(t for t in cs.tracks if t.name == "kick")
+    # strength=1.0 * 1.2 multiplier * 1.0 hierarchy * 1.0 rarity = 1.2
+    assert kick_track.events[0]["strength"] == pytest.approx(1.2, abs=0.01)
+
+
+def test_grammar_compiler_near_downbeat_multiplier_skips_when_far():
+    from musicue.schemas import BeatEvent
+
+    grammar = Grammar(
+        name="test",
+        hierarchy_weights={"macro": 1.0, "meso": 1.0, "micro": 1.0},
+        tracks=[
+            GrammarTrack(
+                name="kick",
+                type="impulse",
+                source="onsets.drums",
+                filter="drum_class == 'kick'",
+                score={
+                    "base": "strength",
+                    "multiplier": [{"when": "near_downbeat(0.05)", "factor": 1.2}],
+                },
+                envelope={"a": 0.005, "d": 0.12, "s": 0.0, "r": 0.0},
+            )
+        ],
+    )
+    onsets = [OnsetEvent(t=1.5, strength=1.0, drum_class="kick")]  # 0.5s from downbeat
+    analysis = _make_analysis(onsets=onsets)
+    analysis.beats = [
+        BeatEvent(t=1.0, beat_in_bar=1, bar=1, is_downbeat=True, confidence=0.9, timescale="micro"),
+    ]
+    cs = compile_analysis(analysis, grammar=grammar)
+    kick_track = next(t for t in cs.tracks if t.name == "kick")
+    # strength=1.0 * 1.0 (no boost) = 1.0
+    assert kick_track.events[0]["strength"] == pytest.approx(1.0, abs=0.01)
+
+
 def test_grammar_compiler_loads_from_file(tmp_path):
     import yaml
 

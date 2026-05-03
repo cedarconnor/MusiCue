@@ -102,3 +102,22 @@ def test_rarity_bonus_outside_window():
     tracker.record(t=3.0)  # 2s ago - outside 1s window
     bonus = tracker.bonus(t=5.0)
     assert bonus == pytest.approx(1.0)
+
+
+# --- dotted-field filter expressions ---
+
+
+def test_filter_dotted_field_gt_true():
+    event = {"ramp_evidence": {"spectral_flux_rise": 0.7}}
+    assert evaluate_filter("ramp_evidence.spectral_flux_rise > 0.4", event) is True
+
+
+def test_filter_dotted_field_gt_false():
+    event = {"ramp_evidence": {"spectral_flux_rise": 0.2}}
+    assert evaluate_filter("ramp_evidence.spectral_flux_rise > 0.4", event) is False
+
+
+def test_filter_dotted_field_missing_returns_false():
+    # Missing dotted path -> default 0 -> 0 > 0.4 is False
+    event = {}
+    assert evaluate_filter("ramp_evidence.spectral_flux_rise > 0.4", event) is False

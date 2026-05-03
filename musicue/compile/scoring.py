@@ -54,12 +54,31 @@ import re
 from typing import Any
 
 # Precompiled regexes for the DSL forms.
+# Field name patterns accept dotted paths (e.g. ``ramp_evidence.spectral_flux_rise``)
+# and are walked via :func:`_get_dotted`.
 _RE_ANY_LABEL = re.compile(r"any_label\('([^']+)',\s*min_score=([\d.]+)\)")
 _RE_NEAR_DOWNBEAT = re.compile(r"near_downbeat\(([\d.]+)\)")
-_RE_FIELD_EQ_STR = re.compile(r"(\w+)\s*==\s*'([^']*)'")
-_RE_FIELD_EQ_BOOL = re.compile(r"(\w+)\s*==\s*(true|false)")
-_RE_FIELD_GT = re.compile(r"(\w+)\s*>\s*([\d.]+)")
+_RE_FIELD_EQ_STR = re.compile(r"([\w.]+)\s*==\s*'([^']*)'")
+_RE_FIELD_EQ_BOOL = re.compile(r"([\w.]+)\s*==\s*(true|false)")
+_RE_FIELD_GT = re.compile(r"([\w.]+)\s*>\s*([\d.]+)")
 _RE_LABEL_SCORE = re.compile(r"label_score\('([^']+)'\)")
+
+
+def _get_dotted(event: dict, path: str, default: Any = None) -> Any:
+    """Walk a dotted ``path`` against ``event`` and return the leaf value.
+
+    Returns ``default`` when any intermediate segment is missing or the
+    current node is not a dict. This lets filter expressions reference
+    nested fields like ``ramp_evidence.spectral_flux_rise`` without the
+    grammar having to flatten event payloads beforehand.
+    """
+    cur: Any = event
+    for part in path.split("."):
+        if isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        else:
+            return default
+    return cur
 
 
 def evaluate_filter(expr: str | None, event: dict) -> bool:
@@ -86,23 +105,26 @@ def evaluate_filter(expr: str | None, event: dict) -> bool:
     if m:
         return bool(event.get("near_downbeat", False))
 
-    # field == 'value'
+    # field == 'value' (supports dotted paths)
     m = _RE_FIELD_EQ_STR.match(expr)
     if m:
         field, value = m.group(1), m.group(2)
-        return str(event.get(field, "")) == value
+        return str(_get_dotted(event, field, "")) == value
 
-    # field == true/false
+    # field == true/false (supports dotted paths)
     m = _RE_FIELD_EQ_BOOL.match(expr)
     if m:
         field, want_true = m.group(1), m.group(2) == "true"
-        return bool(event.get(field, False)) == want_true
+        return bool(_get_dotted(event, field, False)) == want_true
 
-    # field > value
+    # field > value (supports dotted paths)
     m = _RE_FIELD_GT.match(expr)
     if m:
         field, value = m.group(1), float(m.group(2))
-        return float(event.get(field, 0)) > value
+        try:
+            return float(_get_dotted(event, field, 0)) > value
+        except (TypeError, ValueError):
+            return False
 
     # Unknown expression: pass through so unknown DSL doesn't silently drop events.
     return True
