@@ -1,0 +1,43 @@
+name: camera_edit
+
+hierarchy_weights:
+  macro: 2.0
+  meso:  1.0
+  micro: 0.4
+
+tracks:
+  - name: cut_point
+    type: step
+    source: sections
+    emit: section_boundary
+
+  - name: bar_start
+    type: impulse
+    source: beats
+    filter: "is_downbeat == true"
+    score:
+      base: 1.0
+      multiplier:
+        - {when: "section_label == 'chorus'", factor: 1.4}
+    envelope: {a: 0.01, d: 0.5, s: 0.0, r: 0.0}
+    cooldown_sec: 2.0
+
+  - name: impact
+    type: impulse
+    source: "onsets.*"
+    filter: "any_label('impact hit', min_score=0.6)"
+    score:
+      base: "label_score('impact hit')"
+    envelope: {a: 0.02, d: 0.6, s: 0.4, r: 2.0}
+    cooldown_sec: 4.0
+
+  - name: section_ramp
+    type: ramp
+    source: section_transitions
+    filter: "ramp_evidence.spectral_flux_rise > 0.3"
+
+  - name: energy
+    type: continuous
+    source: curves.lufs
+    smoothing: {kind: ema, tau_sec: 0.5}
+    normalize: {kind: percentile, low: 10, high: 90}
