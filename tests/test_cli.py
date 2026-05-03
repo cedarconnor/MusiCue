@@ -54,6 +54,11 @@ def test_listen_help():
     assert "click" in r.stdout.lower() or "audio" in r.stdout.lower()
 
 
+def test_diff_help():
+    r = cli("diff", "--help")
+    assert r.returncode == 0
+
+
 def test_export_unknown_target_exits_nonzero(tmp_path):
     from musicue.schemas import CueSheet
     cs = CueSheet(source_sha256="x", grammar="g", duration_sec=1.0, tempo_map=[], tracks=[])
