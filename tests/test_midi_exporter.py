@@ -1,7 +1,8 @@
-import mido
 import pytest
 
-from musicue.exporters.midi import export
+mido = pytest.importorskip("mido")
+
+from musicue.exporters.midi import export  # noqa: E402
 
 
 def test_midi_export_creates_file(tmp_path, full_cuesheet):
@@ -80,3 +81,64 @@ def test_midi_export_continuous_downsamples_to_10hz(tmp_path):
     cc_msgs = [m for t in mid.tracks for m in t if m.type == "control_change"]
     # 10 seconds at 10 Hz target should give ~100 CC messages, not 1000.
     assert 80 <= len(cc_msgs) <= 120, f"Expected ~100 CC messages, got {len(cc_msgs)}"
+
+
+def test_midi_continuous_normalized_input_does_not_saturate(tmp_path):
+    """Continuous values already in [0, 1] should NOT all map to CC 127."""
+    from musicue.exporters.midi import export
+    from musicue.schemas import CueSheet, CueTrack
+
+    cs = CueSheet(
+        source_sha256="x",
+        grammar="g",
+        duration_sec=2.0,
+        tempo_map=[{"t": 0.0, "bpm": 120.0}],
+        tracks=[
+            CueTrack(
+                name="energy",
+                type="continuous",
+                timescale="macro",
+                hop_sec=0.1,
+                values=[0.0, 0.25, 0.5, 0.75, 1.0] + [0.0] * 15,  # 20 values, 2s at hop=0.1
+            ),
+        ],
+    )
+    out = tmp_path / "cuesheet.mid"
+    export(cs, out)
+    mid = mido.MidiFile(str(out))
+    cc_msgs = [m for t in mid.tracks for m in t if m.type == "control_change"]
+    cc_values = [m.value for m in cc_msgs]
+    # With auto-rescale, [0, 0.25, 0.5, 0.75, 1.0] maps to [0, 31, 63, 95, 127]
+    assert min(cc_values) == 0
+    assert max(cc_values) == 127
+    # Not all 127 -- the saturation bug should not recur
+    assert len(set(cc_values)) > 1
+
+
+def test_midi_continuous_lufs_range_input_works(tmp_path):
+    """Continuous LUFS values in [-70, 0] should still rescale to full CC range."""
+    from musicue.exporters.midi import export
+    from musicue.schemas import CueSheet, CueTrack
+
+    cs = CueSheet(
+        source_sha256="x",
+        grammar="g",
+        duration_sec=2.0,
+        tempo_map=[{"t": 0.0, "bpm": 120.0}],
+        tracks=[
+            CueTrack(
+                name="energy",
+                type="continuous",
+                timescale="macro",
+                hop_sec=0.1,
+                values=[-70.0, -50.0, -30.0, -10.0, 0.0] + [-30.0] * 15,
+            ),
+        ],
+    )
+    out = tmp_path / "cuesheet.mid"
+    export(cs, out)
+    mid = mido.MidiFile(str(out))
+    cc_msgs = [m for t in mid.tracks for m in t if m.type == "control_change"]
+    cc_values = [m.value for m in cc_msgs]
+    assert min(cc_values) == 0
+    assert max(cc_values) == 127
