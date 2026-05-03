@@ -14,6 +14,7 @@ _EXPORTERS = {
     "after_effects": ("musicue.exporters.aftereffects", ".jsx"),
     "touchdesigner": ("musicue.exporters.touchdesigner", ".csv"),
     "osc": ("musicue.exporters.osc", "_osc.json"),
+    "houdini": ("musicue.exporters.houdini", "_houdini.csv"),
 }
 
 
