@@ -25,16 +25,20 @@ Track-type mapping:
   expression-driven downstream); markers from neighboring step tracks
   carry the section change.
 
-Pure stdlib. Output is UTF-8 text. Track names are assumed to be JS-safe
-(alphanumerics + underscore + hyphen); hyphens are translated to underscores
-for variable names. Other non-ASCII or special characters are not escaped.
+Pure stdlib. Output is UTF-8 text. Track names are sanitized for JS variable
+identifiers (any non ``[A-Za-z0-9_]`` becomes ``_``; a leading digit is
+prefixed with ``_``); the original name is JSX-escaped when interpolated into
+layer-name string literals.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from musicue.schemas import CueSheet
+
+_VAR_NAME_PATTERN = re.compile(r"[^A-Za-z0-9_]")
 
 
 def _jsx_escape(s: str) -> str:
@@ -45,10 +49,14 @@ def _jsx_escape(s: str) -> str:
 def _var_name(track_name: str) -> str:
     """Translate a track name into a JS-safe identifier suffix.
 
-    Assumes track names from MusiCue grammars are clean (alphanumerics,
-    underscore, hyphen). Only hyphens are remapped here.
+    Replaces any character outside ``[A-Za-z0-9_]`` with ``_`` and prefixes a
+    leading underscore if the result starts with a digit, so the suffix is
+    always a valid ECMAScript identifier tail.
     """
-    return track_name.replace("-", "_")
+    v = _VAR_NAME_PATTERN.sub("_", track_name)
+    if v[:1].isdigit():
+        v = "_" + v
+    return v
 
 
 def export(cuesheet: CueSheet, out_path: Path, fps: float = 24.0, **opts) -> None:
@@ -91,10 +99,9 @@ def export(cuesheet: CueSheet, out_path: Path, fps: float = 24.0, **opts) -> Non
     # Slider Control layers for continuous + impulse + envelope tracks
     for track in cuesheet.tracks:
         var = _var_name(track.name)
-        safe_name = f"MusiCue_{track.name}"
         a(f"  // Track: {track.name} ({track.type})")
         a(f"  var layer_{var} = comp.layers.addNull();")
-        a(f'  layer_{var}.name = "{safe_name}";')
+        a(f'  layer_{var}.name = "MusiCue_{_jsx_escape(track.name)}";')
         a(
             f"  var effect_{var} = layer_{var}.Effects"
             f".addProperty('ADBE Slider Control');"

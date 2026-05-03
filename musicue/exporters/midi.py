@@ -111,7 +111,9 @@ def export(cuesheet: CueSheet, out_path: Path, ticks_per_beat: int = 480, **opts
         elif track.type == "continuous" and track.values and track.hop_sec:
             hop = track.hop_sec
             target_hz = 10.0
-            step = max(1, int(target_hz * hop))
+            # Stride to keep target_hz samples/sec from a 1/hop samples/sec source.
+            # When source rate <= target rate (hop * target_hz >= 1), emit every frame.
+            step = max(1, int(round(1.0 / (target_hz * hop))))
             for i in range(0, len(track.values), step):
                 t = i * hop
                 val = float(track.values[i])

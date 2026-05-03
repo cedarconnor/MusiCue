@@ -52,6 +52,8 @@ from pathlib import Path
 
 from musicue.schemas import CueSheet
 
+_TARGET_HZ = 10.0  # downsample rate for continuous tracks
+
 _PLAYER_SCRIPT = '''\
 #!/usr/bin/env python3
 """Play a MusiCue OSC bundle. Requires python-osc: pip install python-osc"""
@@ -132,7 +134,9 @@ def export(
 
         elif track.type == "continuous" and track.values and track.hop_sec:
             hop = track.hop_sec
-            step = max(1, int(hop * 10))
+            # Stride to keep _TARGET_HZ samples/sec from a 1/hop samples/sec source.
+            # When source rate <= target rate (hop * _TARGET_HZ >= 1), emit every frame.
+            step = max(1, int(round(1.0 / (_TARGET_HZ * hop))))
             for i in range(0, len(track.values), step):
                 t = i * hop
                 val = float(track.values[i])

@@ -52,3 +52,31 @@ def test_osc_player_script_created(tmp_path, full_cuesheet):
     assert player.exists()
     content = player.read_text()
     assert "pythonosc" in content or "python-osc" in content or "osc_message" in content.lower()
+
+
+def test_osc_export_continuous_downsamples_to_10hz(tmp_path):
+    """Continuous tracks finer than 10 Hz should NOT emit at source rate."""
+    from musicue.exporters.osc import export
+    from musicue.schemas import CueSheet, CueTrack
+
+    cs = CueSheet(
+        source_sha256="x",
+        grammar="g",
+        duration_sec=10.0,
+        tempo_map=[],
+        tracks=[
+            CueTrack(
+                name="energy",
+                type="continuous",
+                timescale="macro",
+                hop_sec=0.01,
+                values=[float(i) / 1000 - 0.5 for i in range(1000)],
+            ),
+        ],
+    )
+    out = tmp_path / "cuesheet_osc.json"
+    export(cs, out)
+    data = json.loads(out.read_text())
+    energy_msgs = [m for m in data["messages"] if m["address"] == "/musicue/energy"]
+    # 10 seconds at 10 Hz target should give ~100 messages, not 1000.
+    assert 80 <= len(energy_msgs) <= 120, f"Expected ~100 messages, got {len(energy_msgs)}"

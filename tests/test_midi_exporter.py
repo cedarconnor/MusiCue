@@ -51,3 +51,32 @@ def test_midi_export_step_as_text_marker(tmp_path, full_cuesheet):
     markers = [m for t in mid.tracks for m in t if m.type == "marker"]
     labels = [m.text for m in markers]
     assert any("intro" in lbl or "chorus" in lbl for lbl in labels)
+
+
+def test_midi_export_continuous_downsamples_to_10hz(tmp_path):
+    """Continuous tracks finer than 10 Hz should NOT emit at source rate."""
+    from musicue.exporters.midi import export
+    from musicue.schemas import CueSheet, CueTrack
+
+    # 100 Hz source: 1000 samples over 10 seconds at hop_sec=0.01
+    cs = CueSheet(
+        source_sha256="x",
+        grammar="g",
+        duration_sec=10.0,
+        tempo_map=[{"t": 0.0, "bpm": 120.0}],
+        tracks=[
+            CueTrack(
+                name="energy",
+                type="continuous",
+                timescale="macro",
+                hop_sec=0.01,
+                values=[float(i) / 1000 - 0.5 for i in range(1000)],
+            ),
+        ],
+    )
+    out = tmp_path / "cuesheet.mid"
+    export(cs, out)
+    mid = mido.MidiFile(str(out))
+    cc_msgs = [m for t in mid.tracks for m in t if m.type == "control_change"]
+    # 10 seconds at 10 Hz target should give ~100 CC messages, not 1000.
+    assert 80 <= len(cc_msgs) <= 120, f"Expected ~100 CC messages, got {len(cc_msgs)}"
