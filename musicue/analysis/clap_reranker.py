@@ -30,6 +30,8 @@ from typing import Any
 import numpy as np
 
 _MODEL_CACHE: Any = None
+_TEXT_EMBED_CACHE: dict[tuple[str, ...], np.ndarray] = {}
+_AUDIO_CACHE: dict[str, tuple[np.ndarray, int]] = {}
 
 
 def clap_version() -> str:
@@ -53,21 +55,45 @@ def _load_model():
     return _MODEL_CACHE
 
 
+def _load_full_audio_mono(audio_path: Path) -> tuple[np.ndarray, int]:
+    """Read full audio as mono float32, cached per-process by absolute path.
+
+    The cache is what makes ``attach_clap_labels`` cheap on songs with many
+    onsets: previously every event triggered a full-file decode. Now the
+    decode happens once per song per process.
+    """
+    key = str(Path(audio_path).resolve())
+    cached = _AUDIO_CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        import soundfile as sf
+
+        data, file_sr = sf.read(str(audio_path))
+        if data.ndim > 1:
+            data = data.mean(axis=1)
+    except Exception:
+        # Compressed formats (m4a / mp3 / aac) aren't supported by libsndfile;
+        # fall back to librosa which goes through audioread + ffmpeg.
+        import librosa
+
+        data, file_sr = librosa.load(str(audio_path), sr=None, mono=True)
+    data = np.asarray(data, dtype=np.float32)
+    _AUDIO_CACHE[key] = (data, int(file_sr))
+    return _AUDIO_CACHE[key]
+
+
 def _extract_window(
     audio_path: Path, t: float, window_sec: float = 2.0, sr: int = 44100
 ) -> np.ndarray:
     """Extract a mono ``window_sec`` clip centered on time ``t`` at ``sr`` Hz.
 
-    Reads the file via soundfile, downmixes to mono if needed, slices a
+    Loads the file once via the module-level ``_AUDIO_CACHE`` and slices a
     centered window with zero-padding when the event is near a file boundary,
-    and resamples to ``sr`` (CLAP's expected rate of 44.1 kHz) when the file's
-    native rate differs.
+    resampling to ``sr`` (CLAP's expected rate of 44.1 kHz) when needed.
+    Tests can still patch this function directly to bypass real audio I/O.
     """
-    import soundfile as sf
-
-    data, file_sr = sf.read(str(audio_path))
-    if data.ndim > 1:
-        data = data.mean(axis=1)
+    data, file_sr = _load_full_audio_mono(audio_path)
     n_samples = int(window_sec * file_sr)
     center = int(t * file_sr)
     start = max(0, center - n_samples // 2)
@@ -110,7 +136,13 @@ def attach_clap_labels(
     audio_embeddings = model.get_audio_embedding_from_data(
         np.stack(audio_windows), use_tensor=False
     )
-    text_embeddings = model.get_text_embedding(prompts, use_tensor=False)
+    # Prompt embeddings don't change between stems within the same pipeline
+    # run; cache them keyed by the prompt tuple so we only embed text once.
+    prompt_key = tuple(prompts)
+    text_embeddings = _TEXT_EMBED_CACHE.get(prompt_key)
+    if text_embeddings is None:
+        text_embeddings = model.get_text_embedding(prompts, use_tensor=False)
+        _TEXT_EMBED_CACHE[prompt_key] = text_embeddings
 
     # Cosine similarity: (n_events, n_prompts).
     audio_norm = audio_embeddings / (
