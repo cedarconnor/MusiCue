@@ -11,8 +11,23 @@ import soundfile as sf
 _BS1770_WINDOW = 0.4  # pyloudnorm integrated_loudness requires ≥400ms
 
 
+def _read_audio_2d(audio_path: Path) -> tuple[np.ndarray, int]:
+    """Load audio as float32 with shape (samples, channels). Tries soundfile
+    first (fast WAV/FLAC path) and falls back to librosa.load for compressed
+    formats like m4a/mp3/aac that libsndfile cannot decode."""
+    try:
+        data, rate = sf.read(str(audio_path), dtype="float32")
+    except sf.LibsndfileError:
+        # librosa.load returns (channels, samples) when mono=False; transpose
+        # to match the soundfile (samples, channels) layout.
+        y, rate = librosa.load(str(audio_path), sr=None, mono=False)
+        data = y.T if y.ndim > 1 else y
+        data = np.ascontiguousarray(data, dtype=np.float32)
+    return data, rate
+
+
 def compute_lufs_curve(audio_path: Path, hop_sec: float = 0.04) -> dict:
-    data, rate = sf.read(str(audio_path), dtype="float32")
+    data, rate = _read_audio_2d(audio_path)
     if data.ndim == 1:
         data = data[:, np.newaxis]
     meter = pyln.Meter(rate)
@@ -36,7 +51,14 @@ def compute_lufs_curve(audio_path: Path, hop_sec: float = 0.04) -> dict:
 
 
 def compute_rms_curve(audio_path: Path, hop_sec: float = 0.04) -> dict:
-    data, rate = sf.read(str(audio_path), dtype="float32", always_2d=False)
+    try:
+        data, rate = sf.read(str(audio_path), dtype="float32", always_2d=False)
+    except sf.LibsndfileError:
+        # librosa returns (channels, samples) for stereo; transpose to the
+        # (samples, channels) layout sf.read uses so the mean(axis=1) below
+        # works the same way for both code paths.
+        y, rate = librosa.load(str(audio_path), sr=None, mono=False)
+        data = (y.T if y.ndim > 1 else y).astype(np.float32)
     if data.ndim > 1:
         data = data.mean(axis=1)
     hop = max(1, int(hop_sec * rate))
