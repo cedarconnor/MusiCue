@@ -99,8 +99,17 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
         return AnalysisResult.model_validate_json(cached.read_text())
 
     sha256 = _sha256(audio_path)
-    info = sf.info(str(audio_path))
-    duration_sec = info.frames / info.samplerate
+    try:
+        info = sf.info(str(audio_path))
+        duration_sec = info.frames / info.samplerate
+        sample_rate = info.samplerate
+    except sf.LibsndfileError:
+        # libsndfile can't probe compressed inputs (m4a/mp3/aac); use librosa
+        # which proxies through audioread + ffmpeg.
+        import librosa as _librosa
+
+        duration_sec = float(_librosa.get_duration(path=str(audio_path)))
+        sample_rate = int(_librosa.get_samplerate(str(audio_path)))
 
     run_dir = cfg.runs_dir / cache_key[:12]
 
@@ -236,7 +245,7 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
             path=str(audio_path),
             sha256=sha256,
             duration_sec=duration_sec,
-            sample_rate=info.samplerate,
+            sample_rate=sample_rate,
         ),
         analysis_config=AnalysisConfig(
             demucs_model=cfg.analysis.demucs_model,

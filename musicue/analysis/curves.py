@@ -81,7 +81,7 @@ def compute_spectral_flux_curve(audio_path: Path, hop_sec: float = 0.04) -> dict
 
 
 def compute_stereo_width_pan(audio_path: Path, hop_sec: float = 0.04) -> dict:
-    data, rate = sf.read(str(audio_path))
+    data, rate = _read_audio_2d(audio_path)
     hop = max(1, int(hop_sec * rate))
     if data.ndim == 1:
         n = max(1, len(data) // hop)
