@@ -23,21 +23,31 @@ def separate(
     model: str = "htdemucs_ft",
 ) -> dict[str, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
+    stem_dir = out_dir / model / audio_path.stem
+    expected: dict[str, Path] = {
+        n: stem_dir / f"{n}.wav" for n in ("drums", "bass", "vocals", "other")
+    }
+    # Idempotent fast path: if the four expected stems are already on disk for this
+    # (out_dir, model, song) tuple, skip the (very expensive) demucs subprocess.
+    if all(p.exists() for p in expected.values()):
+        return expected
+
     cmd = [
         sys.executable, "-m", "demucs",
         "-n", model,
         "-o", str(out_dir),
         str(audio_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    # ``encoding='utf-8'`` + ``errors='replace'`` so demucs' progress bars
+    # (which contain unicode block chars) don't crash the cp1252 charmap
+    # decoder on Windows. ``errors='replace'`` keeps stderr readable.
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
     if result.returncode != 0:
         raise RuntimeError(f"Demucs failed:\n{result.stderr}")
 
-    stem_dir = out_dir / model / audio_path.stem
-    stems: dict[str, Path] = {}
-    for stem_name in ("drums", "bass", "vocals", "other"):
-        p = stem_dir / f"{stem_name}.wav"
+    for stem_name, p in expected.items():
         if not p.exists():
             raise FileNotFoundError(f"Demucs did not produce expected stem: {p}")
-        stems[stem_name] = p
-    return stems
+    return expected

@@ -77,6 +77,17 @@ def _version_dict(cfg: MusiCueConfig) -> dict:
     }
 
 
+def compute_run_dir(audio_path: Path, cfg: MusiCueConfig) -> Path:
+    """Return the deterministic ``run_dir`` ``run_analysis`` will use for this input.
+
+    Exposed so callers (e.g. benchmarks) can pre-populate ``run_dir/stems`` and
+    have ``run_analysis`` reuse them via ``separate()``'s idempotent fast path.
+    """
+    resolved = audio_path.resolve()
+    cache_key = build_audio_cache_key(resolved, _version_dict(cfg))
+    return cfg.runs_dir / cache_key[:12]
+
+
 def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
     audio_path = audio_path.resolve()
     version_dict = _version_dict(cfg)

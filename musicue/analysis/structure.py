@@ -81,7 +81,10 @@ def detect_structure(audio_path: Path, backend: str = "allin1") -> dict:
         try:
             import allin1  # type: ignore[import-not-found]
 
-            result = allin1.analyze(str(audio_path))
+            # NOTE: ``multiprocess=False`` is required on Windows machines whose
+            # CPU count brings allin1's pool above the 63-handle WaitForMultipleObjects
+            # limit (otherwise: ValueError: need at most 63 handles).
+            result = allin1.analyze(str(audio_path), multiprocess=False)
             downbeat_set = set(result.downbeats)
             beats: list[dict] = []
             bar = 0
