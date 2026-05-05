@@ -1,6 +1,9 @@
 import { AnalysisJSON } from "../lib/api";
 
-const DRUM_COLORS: Record<string, string> = {
+// When the drum classifier is trained, drum_class is set and we color per
+// class. Until then (drum_cnn.pt not shipped), we fall back to per-stem
+// colors so the user can at least distinguish drum/bass/vocal/other onsets.
+const DRUM_CLASS_COLORS: Record<string, string> = {
   kick: "#FF5722",
   snare: "#2196F3",
   hihat: "#9C27B0",
@@ -9,6 +12,13 @@ const DRUM_COLORS: Record<string, string> = {
   cymbal: "#FFC107",
   ride: "#00BCD4",
   percussion: "#888",
+};
+
+const STEM_COLORS: Record<string, string> = {
+  drums: "#FF5722",
+  bass: "#2196F3",
+  vocals: "#4CAF50",
+  other: "#9C27B0",
 };
 
 export const OVERLAY_HEIGHT = 80;
@@ -44,18 +54,20 @@ export function drawAnalysisLayer(
     ctx.fillText(sec.label ?? "", x0 + 4, SECTION_H - 4);
   }
 
-  const drumOnsets = analysis.onsets?.drums ?? [];
-  for (const o of drumOnsets) {
-    const x = o.t * pxPerSec;
-    const cls = (o.drum_class as string) ?? "percussion";
-    ctx.strokeStyle = DRUM_COLORS[cls] ?? "#aaa";
-    ctx.lineWidth = 1.5;
-    const v = o.strength ?? 0.5;
-    const h = ONSET_H * Math.max(0.2, Math.min(1, v));
-    ctx.beginPath();
-    ctx.moveTo(x, ONSET_TOP + (ONSET_H - h));
-    ctx.lineTo(x, ONSET_TOP + ONSET_H);
-    ctx.stroke();
+  for (const [stem, onsets] of Object.entries(analysis.onsets ?? {})) {
+    const stemColor = STEM_COLORS[stem] ?? "#aaa";
+    for (const o of onsets) {
+      const x = o.t * pxPerSec;
+      const cls = o.drum_class as string | undefined;
+      ctx.strokeStyle = cls ? DRUM_CLASS_COLORS[cls] ?? stemColor : stemColor;
+      ctx.lineWidth = 1.5;
+      const v = o.strength ?? 0.5;
+      const h = ONSET_H * Math.max(0.2, Math.min(1, v));
+      ctx.beginPath();
+      ctx.moveTo(x, ONSET_TOP + (ONSET_H - h));
+      ctx.lineTo(x, ONSET_TOP + ONSET_H);
+      ctx.stroke();
+    }
   }
 
   for (const b of analysis.beats ?? []) {
