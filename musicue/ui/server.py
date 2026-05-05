@@ -18,4 +18,7 @@ def create_app(storage_root: Path | None = None) -> FastAPI:
     def health() -> dict:
         return {"status": "ok"}
 
+    from musicue.ui.routes import songs as songs_routes
+    app.include_router(songs_routes.router)
+
     return app
