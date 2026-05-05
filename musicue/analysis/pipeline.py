@@ -271,5 +271,12 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
     out_json = run_dir / "analysis.json"
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.write_text(result.model_dump_json(indent=2))
+
+    from musicue.analysis.peaks import write_peaks
+
+    write_peaks(audio_path, run_dir / "peaks.mix.json")
+    for stem_name, stem_path in stems.items():
+        write_peaks(stem_path, run_dir / f"peaks.{stem_name}.json")
+
     cache.put(cache_key, "analysis.json", out_json)
     return result
