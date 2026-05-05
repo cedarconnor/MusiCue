@@ -27,4 +27,9 @@ def create_app(storage_root: Path | None = None) -> FastAPI:
     app.include_router(analyses_routes.router)
     app.include_router(click_routes.router)
 
+    static_dir = Path(__file__).parent / "static"
+    if static_dir.exists():
+        from fastapi.staticfiles import StaticFiles
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+
     return app

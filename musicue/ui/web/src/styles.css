@@ -1,0 +1,16 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background: #1a1a1a;
+  color: #eee;
+}
+a { color: #6cf; }
+button {
+  background: #2a2a2a;
+  color: #eee;
+  border: 1px solid #555;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+button:hover { background: #333; }
