@@ -1,18 +1,13 @@
-import { Route, Routes, Link } from "react-router-dom";
-
-function Home() {
-  return (
-    <div style={{ padding: 24 }}>
-      <h1>MusiCue</h1>
-      <Link to="/library">Library</Link>
-    </div>
-  );
-}
+import { Route, Routes, Navigate } from "react-router-dom";
+import Library from "./pages/Library";
+import Editor from "./pages/Editor";
 
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
+      <Route path="/" element={<Navigate to="/library" replace />} />
+      <Route path="/library" element={<Library />} />
+      <Route path="/editor/:songId/:analysisId" element={<Editor />} />
     </Routes>
   );
 }
