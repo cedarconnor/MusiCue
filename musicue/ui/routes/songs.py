@@ -1,6 +1,7 @@
-"""Songs router: list, detail, upload."""
+"""Songs router: list, detail, upload, analyze."""
 from __future__ import annotations
 
+import asyncio
 import shutil
 import tempfile
 from pathlib import Path
@@ -8,6 +9,24 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
 router = APIRouter(prefix="/api", tags=["songs"])
+
+
+async def _default_analyze(audio_path: Path, run_dir: Path, publish) -> str:
+    """Real analyze path. Runs the synchronous run_analysis in a thread,
+    publishes coarse progress at stage boundaries, returns the analysis id
+    (the deterministic run_dir name from compute_run_dir)."""
+    from musicue.analysis.pipeline import compute_run_dir, run_analysis
+    from musicue.config import MusiCueConfig
+
+    cfg = MusiCueConfig()
+    cfg.runs_dir = run_dir.parent
+
+    await publish({"type": "progress", "fraction": 0.05, "stage": "starting"})
+    await publish({"type": "progress", "fraction": 0.1, "stage": "analyzing"})
+    await asyncio.get_running_loop().run_in_executor(None, run_analysis, audio_path, cfg)
+    await publish({"type": "progress", "fraction": 0.95, "stage": "writing"})
+    actual_run_dir = compute_run_dir(audio_path, cfg)
+    return actual_run_dir.name
 
 
 @router.get("/songs")
@@ -64,3 +83,28 @@ async def upload_song(
     finally:
         tmp_path.unlink(missing_ok=True)
     return {"id": rec.id, "title": rec.title, "source_ext": rec.source_ext}
+
+
+@router.post("/songs/{song_id}/analyze", status_code=202)
+async def analyze_song(song_id: str, request: Request) -> dict:
+    storage = request.app.state.storage
+    rec = storage.get_song(song_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="song not found")
+    jobs = request.app.state.jobs
+    analyze_func = getattr(request.app.state, "analyze_func", _default_analyze)
+    job = jobs.submit(kind="analyze", payload={"song_id": song_id})
+    run_dir = storage.analyses_dir(song_id) / "pending"
+
+    async def publish(event: dict) -> None:
+        await jobs.publish(job.id, event)
+
+    async def runner() -> None:
+        try:
+            analysis_id = await analyze_func(rec.source_path, run_dir, publish)
+            await jobs.complete(job.id, result={"analysis_id": analysis_id})
+        except Exception as exc:  # noqa: BLE001
+            await jobs.fail(job.id, error=f"{type(exc).__name__}: {exc}")
+
+    asyncio.create_task(runner())
+    return {"job_id": job.id, "queue": "analyze", "status": "queued"}

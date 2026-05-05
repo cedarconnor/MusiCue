@@ -19,6 +19,8 @@ def create_app(storage_root: Path | None = None) -> FastAPI:
         return {"status": "ok"}
 
     from musicue.ui.routes import songs as songs_routes
+    from musicue.ui.routes import jobs as jobs_routes
     app.include_router(songs_routes.router)
+    app.include_router(jobs_routes.router)
 
     return app

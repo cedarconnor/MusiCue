@@ -63,6 +63,15 @@ class JobManager:
             "status": job.status.value,
             "progress": job.progress,
         })
+        # If the job is already in a terminal state when we subscribed
+        # (race: runner finished before WS connect), emit the matching
+        # terminal event synthetically so the subscriber doesn't hang.
+        if job.status is JobStatus.COMPLETE:
+            await q.put({"type": "complete", "result": job.result or {}})
+        elif job.status is JobStatus.FAILED:
+            await q.put({"type": "error", "error": job.error or "unknown"})
+        elif job.status is JobStatus.CANCELLED:
+            await q.put({"type": "cancelled"})
         try:
             while True:
                 evt = await q.get()
