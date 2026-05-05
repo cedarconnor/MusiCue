@@ -62,7 +62,15 @@ def render_click_track(
     mix = np.zeros((n_samples, 2), dtype=np.float32)
 
     if source_audio and source_audio.exists():
-        data, file_sr = sf.read(str(source_audio))
+        try:
+            data, file_sr = sf.read(str(source_audio))
+        except sf.LibsndfileError:
+            # Compressed input (m4a/mp3/aac); libsndfile can't decode -- use
+            # librosa which proxies through audioread + ffmpeg.
+            import librosa
+
+            y, file_sr = librosa.load(str(source_audio), sr=None, mono=False)
+            data = (y.T if y.ndim > 1 else y).astype(np.float32)
         if data.ndim == 1:
             data = np.stack([data, data], axis=1)
         if file_sr != sr:
