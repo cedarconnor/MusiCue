@@ -20,7 +20,9 @@ def create_app(storage_root: Path | None = None) -> FastAPI:
 
     from musicue.ui.routes import songs as songs_routes
     from musicue.ui.routes import jobs as jobs_routes
+    from musicue.ui.routes import analyses as analyses_routes
     app.include_router(songs_routes.router)
     app.include_router(jobs_routes.router)
+    app.include_router(analyses_routes.router)
 
     return app
