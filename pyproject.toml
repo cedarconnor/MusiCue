@@ -26,11 +26,18 @@ dependencies = [
 musicue = "musicue.cli:app"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.4", "pyright>=1.1", "matplotlib>=3.8", "mido>=1.3", "python-osc>=1.8"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4", "pyright>=1.1", "matplotlib>=3.8", "mido>=1.3", "python-osc>=1.8"]
 models = ["allin1", "basic-pitch"]
 clap = ["laion-clap"]
 midi = ["mido>=1.3"]
 osc = ["python-osc>=1.8"]
+ui = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "websockets>=12",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["musicue"]
@@ -54,3 +61,4 @@ typeCheckingMode = "basic"
 testpaths = ["tests"]
 addopts = "-v -m 'not integration'"
 markers = ["integration: marks tests that require real model inference (slow)"]
+asyncio_mode = "auto"
