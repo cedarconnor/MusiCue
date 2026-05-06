@@ -14,7 +14,7 @@ import argparse
 import os
 import subprocess
 import tempfile
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import matplotlib
@@ -24,7 +24,6 @@ import librosa
 import matplotlib.pyplot as plt
 import numpy as np
 import soundfile as sf  # noqa: F401  -- keeps soundfile reachable for librosa.load
-
 
 # Module-level state populated lazily in workers so we don't reload audio per frame.
 _WORKER_AUDIO: tuple[np.ndarray, int, float] | None = None

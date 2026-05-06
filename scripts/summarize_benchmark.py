@@ -132,11 +132,14 @@ def main() -> None:
     lines.append("")
     lines.append("## Where the time goes")
     lines.append("")
-    lines.append("Run 1+Run 2 means tell the real story. The dominant cost is the "
-                 "**Full pipeline (cached stems)** stage at ~9 minutes/run, which is misleading "
-                 "in the original benchmark — that stage was actually re-running Demucs (~25-50 s), "
-                 "All-In-One (~23-123 s), Basic Pitch, AND CLAP labeling (the real hot path) on top "
-                 "of the per-stage timers above.")
+    lines.append(
+        "Run 1+Run 2 means tell the real story. The dominant cost is the "
+        "**Full pipeline (cached stems)** stage at ~9 minutes/run, which is "
+        "misleading in the original benchmark - that stage was actually "
+        "re-running Demucs (~25-50 s), All-In-One (~23-123 s), Basic Pitch, "
+        "AND CLAP labeling (the real hot path) on top of the per-stage "
+        "timers above."
+    )
     lines.append("")
     lines.append("After the cache fix (`separate()` idempotent + benchmark shares `runs_dir`), "
                  "the per-iteration 'Demucs separation' stage drops to ~milliseconds, and "
@@ -212,9 +215,11 @@ def main() -> None:
         lines.append("- The CLAP audio + text embedding caches cut **Full pipeline** roughly "
                      "in half by eliminating ~1,300 redundant full-file decodes and 3 "
                      "redundant text-embedding calls per pipeline run.")
-        lines.append("- LUFS got slightly slower (+12%) because the m4a path now goes through "
-                     "audioread+ffmpeg instead of the WAV soundfile fast path. Cost of correctness; "
-                     "WAV inputs keep the original speed.")
+        lines.append(
+            "- LUFS got slightly slower (+12%) because the m4a path now goes "
+            "through audioread+ffmpeg instead of the WAV soundfile fast path. "
+            "Cost of correctness; WAV inputs keep the original speed."
+        )
         lines.append("- All-In-One variance is still present (R1 22 s vs R2 113 s). Its disk "
                      "cache invalidation isn't fully understood yet -- left as a follow-up.")
         lines.append("")
