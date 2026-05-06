@@ -39,6 +39,18 @@ def _make_events():
     ]
 
 
+def test_attach_clap_labels_no_op_when_events_empty():
+    """Empty stems happen in real songs; np.stack([]) would crash. Should
+    short-circuit and return events unchanged without loading the model."""
+    result = attach_clap_labels(
+        events=[],
+        audio_path=None,
+        prompts=["sub bass drop"],
+        enabled=True,
+    )
+    assert result == []
+
+
 def test_attach_clap_labels_no_op_when_disabled():
     events = _make_events()
     result = attach_clap_labels(

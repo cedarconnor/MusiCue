@@ -127,7 +127,7 @@ def attach_clap_labels(
     The function mutates and returns ``events``. When ``enabled`` is False or
     ``prompts`` is empty, it is a no-op.
     """
-    if not enabled or not prompts:
+    if not enabled or not prompts or not events:
         return events
 
     model = _load_model()

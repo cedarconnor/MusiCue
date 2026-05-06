@@ -135,6 +135,7 @@ def render(
             raise typer.Exit(code=1)
         if out:
             out.mkdir(parents=True, exist_ok=True)
+        failures = 0
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {pool.submit(_process_one, p): p for p in audio_files}
             for future in as_completed(futures):
@@ -143,8 +144,15 @@ def render(
                     result = future.result()
                     typer.echo(f"  {src.name} -> {result.name}")
                 except Exception as e:
+                    failures += 1
                     typer.echo(f"  ERROR {src.name}: {e}", err=True)
-        typer.echo(f"Batch complete: {len(audio_files)} files processed.")
+        succeeded = len(audio_files) - failures
+        typer.echo(
+            f"Batch complete: {succeeded}/{len(audio_files)} succeeded, "
+            f"{failures} failed."
+        )
+        if failures:
+            raise typer.Exit(code=1)
     else:
         result = _process_one(song)
         typer.echo(f"Rendered to {result}")
