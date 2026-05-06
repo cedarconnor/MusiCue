@@ -1,9 +1,8 @@
 from pathlib import Path
-import pytest
 
 from musicue.ui.storage import (
-    UIStorage,
     SongSummary,
+    UIStorage,
     sha256_of_file,
 )
 

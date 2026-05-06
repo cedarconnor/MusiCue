@@ -11,7 +11,7 @@ import shutil
 from pathlib import Path
 
 from musicue.analysis.peaks import write_peaks
-from musicue.ui.storage import UIStorage, sha256_of_file
+from musicue.ui.storage import UIStorage
 
 SOURCE = Path("D:/MusiCue/MusicTests/Ambrosia_2191891511 - Siaynoq.m4a")
 EXISTING_RUN = Path("D:/MusiCue/MusicTests/bench_cache/runs/b2d65b86a271")
