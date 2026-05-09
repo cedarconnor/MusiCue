@@ -10,7 +10,7 @@ import asyncio
 import enum
 import uuid
 from dataclasses import dataclass
-from typing import AsyncIterator
+from typing import AsyncIterator, Callable
 
 
 class JobStatus(enum.Enum):
@@ -37,6 +37,13 @@ class JobManager:
     def __init__(self) -> None:
         self._jobs: dict[str, Job] = {}
         self._queues: dict[str, list[asyncio.Queue]] = {}
+        # Optional callback invoked when request_cancel decides a job is
+        # cancellable. Lets the route layer plug in AnalyzePool.cancel
+        # without JobManager importing it directly.
+        self._cancel_hook: "Callable[[str], None] | None" = None
+
+    def register_cancel_hook(self, hook: "Callable[[str], None]") -> None:
+        self._cancel_hook = hook
 
     def submit(self, kind: str, payload: dict) -> Job:
         job_id = uuid.uuid4().hex[:12]
@@ -107,4 +114,21 @@ class JobManager:
         if job is None or job.status not in (JobStatus.QUEUED, JobStatus.RUNNING):
             return False
         job.cancel_requested = True
+        if self._cancel_hook is not None:
+            try:
+                self._cancel_hook(job_id)
+            except Exception:
+                # Hook failure must not block cancellation accounting.
+                pass
+        # Best-effort: emit a synthetic cancelled event so any subscriber
+        # already attached doesn't hang waiting for the analyze coroutine
+        # to notice. Workers that do finish naturally afterwards will emit
+        # complete/error events too -- those go to no-one because the
+        # subscriber's iterator broke on the first terminal event.
+        job.status = JobStatus.CANCELLED
+        for q in list(self._queues.get(job_id, [])):
+            try:
+                q.put_nowait({"type": "cancelled"})
+            except asyncio.QueueFull:
+                pass
         return True

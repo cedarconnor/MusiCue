@@ -15,6 +15,15 @@ def create_app(storage_root: Path | None = None) -> FastAPI:
     app.state.storage = UIStorage(storage_root or (Path.home() / ".musicue"))
     app.state.jobs = JobManager()
 
+    from musicue.ui.runner import AnalyzePool
+
+    app.state.pool = AnalyzePool(max_workers=1)
+    app.state.jobs.register_cancel_hook(app.state.pool.cancel)
+
+    @app.on_event("shutdown")
+    def _shutdown_pool() -> None:
+        app.state.pool.shutdown(wait=False)
+
     @app.get("/api/health")
     def health() -> dict:
         return {"status": "ok"}
