@@ -27,6 +27,7 @@ import soundfile as sf
 
 from musicue.analysis.clap_reranker import attach_clap_labels, clap_version
 from musicue.analysis.curves import (
+    compute_integrated_lufs,
     compute_lufs_curve,
     compute_rms_curve,
     compute_spectral_centroid_curve,
@@ -266,6 +267,7 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
         midi=typed_midi,
         phrases=phrases,
         curves=curves,
+        lufs_integrated=compute_integrated_lufs(audio_path),
     )
 
     out_json = run_dir / "analysis.json"

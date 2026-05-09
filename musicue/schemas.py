@@ -116,6 +116,7 @@ class AnalysisResult(BaseModel):
     midi: dict[str, list[MidiNote]] = Field(default_factory=dict)
     phrases: dict[str, list[PhraseEvent]] = Field(default_factory=dict)
     curves: dict[str, TimedCurve] = Field(default_factory=dict)
+    lufs_integrated: float | None = None
 
 
 class ADSREnvelope(BaseModel):

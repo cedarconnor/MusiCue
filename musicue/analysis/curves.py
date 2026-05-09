@@ -26,6 +26,24 @@ def _read_audio_2d(audio_path: Path) -> tuple[np.ndarray, int]:
     return data, rate
 
 
+def compute_integrated_lufs(audio_path: Path) -> float | None:
+    """Single integrated LUFS for the whole file (BS.1770 with gating).
+
+    Returns None on failure (e.g. the meter rejects too-short signals).
+    """
+    try:
+        data, rate = _read_audio_2d(audio_path)
+        if data.ndim == 1:
+            data = data[:, np.newaxis]
+        meter = pyln.Meter(rate)
+        loudness = meter.integrated_loudness(data)
+        if math.isinf(loudness) or math.isnan(loudness):
+            return None
+        return float(loudness)
+    except Exception:
+        return None
+
+
 def compute_lufs_curve(audio_path: Path, hop_sec: float = 0.04) -> dict:
     data, rate = _read_audio_2d(audio_path)
     if data.ndim == 1:
