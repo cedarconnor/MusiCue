@@ -45,4 +45,10 @@ def get_click_wav(song_id: str, analysis_id: str, request: Request) -> FileRespo
     out_path = storage.analysis_dir(song_id, analysis_id) / "click.wav"
     if not out_path.exists():
         raise HTTPException(status_code=404, detail="click not generated")
-    return FileResponse(out_path, media_type="audio/wav")
+    # No-cache because the click WAV gets regenerated when the server
+    # rendering code changes; we don't want browsers serving stale audio.
+    return FileResponse(
+        out_path,
+        media_type="audio/wav",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )

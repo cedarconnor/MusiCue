@@ -79,7 +79,10 @@ export async function ensureClick(
 }
 
 export function clickWavUrl(songId: string, analysisId: string): string {
-  return `/api/songs/${songId}/analyses/${analysisId}/click.wav`;
+  // Cache-bust: regenerated WAVs share the same URL but have different
+  // content. Append a timestamp so the browser refetches each time the
+  // user toggles the click track on.
+  return `/api/songs/${songId}/analyses/${analysisId}/click.wav?t=${Date.now()}`;
 }
 
 export function sourceAudioUrl(songId: string): string {
