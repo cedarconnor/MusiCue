@@ -31,12 +31,20 @@ def sha256_of_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
     return h.hexdigest()
 
 
+def _read_source_url(song_dir: Path) -> str | None:
+    p = song_dir / "source_url.txt"
+    if not p.exists():
+        return None
+    return p.read_text(encoding="utf-8").strip() or None
+
+
 @dataclass
 class SongRecord:
     id: str
     title: str
     source_path: Path
     source_ext: str
+    source_url: str | None = None
 
 
 @dataclass
@@ -45,6 +53,7 @@ class SongSummary:
     title: str
     has_analysis: bool
     analysis_ids: list[str] = field(default_factory=list)
+    source_url: str | None = None
 
 
 class UIStorage:
@@ -105,6 +114,7 @@ class UIStorage:
                     title=title,
                     has_analysis=bool(analysis_ids),
                     analysis_ids=analysis_ids,
+                    source_url=_read_source_url(d),
                 )
             )
         return out
@@ -127,4 +137,5 @@ class UIStorage:
             title=title,
             source_path=src,
             source_ext=src.suffix.lstrip("."),
+            source_url=_read_source_url(d),
         )
