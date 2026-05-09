@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Song, listSongs, startAnalyze, uploadSong } from "../lib/api";
 import { useJob } from "../lib/jobs";
 
@@ -86,7 +86,9 @@ export default function Library() {
           >
             <span>
               {s.has_analysis ? (
-                <a href={`/editor/${s.id}/${s.analysis_ids[0]}`}>{s.title}</a>
+                <Link to={`/editor/${s.id}/${s.analysis_ids[0]}`}>
+                  {s.title}
+                </Link>
               ) : (
                 <span>{s.title}</span>
               )}

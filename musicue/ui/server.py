@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 
 from musicue.ui.jobs import JobManager
 from musicue.ui.storage import UIStorage
@@ -30,6 +31,36 @@ def create_app(storage_root: Path | None = None) -> FastAPI:
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
         from fastapi.staticfiles import StaticFiles
-        app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+
+        # Vite emits hashed assets to <static>/assets/. Mount them at /assets/
+        # with long-cache headers via StaticFiles' default behaviour.
+        assets_dir = static_dir / "assets"
+        if assets_dir.exists():
+            app.mount(
+                "/assets",
+                StaticFiles(directory=assets_dir),
+                name="assets",
+            )
+
+        index_html = static_dir / "index.html"
+
+        @app.get("/{full_path:path}")
+        async def spa_fallback(full_path: str) -> FileResponse:
+            """Catch-all so React Router routes (e.g. /editor/<id>/<id>) load
+            the SPA instead of returning FastAPI's plain 404.
+
+            Registered last so all real /api/* routes match first. Anything
+            with the api/ prefix that reaches here is genuinely unknown -- we
+            return a real 404 instead of silently serving index.html (which
+            would let API typos look like working pages).
+            """
+            if full_path.startswith("api/"):
+                raise HTTPException(status_code=404, detail="Not Found")
+            # Serve top-level static files like favicon.ico if they exist;
+            # otherwise fall back to the SPA index.
+            candidate = static_dir / full_path
+            if full_path and candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(index_html)
 
     return app
