@@ -27,6 +27,21 @@ def get_peaks(song_id: str, analysis_id: str, stem: str, request: Request) -> di
     return json.loads(p.read_text(encoding="utf-8"))
 
 
+@router.get("/analyses/{analysis_id}/stems/{stem}")
+def get_stem(
+    song_id: str, analysis_id: str, stem: str, request: Request
+) -> FileResponse:
+    storage = request.app.state.storage
+    p = storage.analysis_dir(song_id, analysis_id) / "stems" / f"{stem}.wav"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="stem not generated")
+    return FileResponse(
+        p,
+        media_type="audio/wav",
+        headers={"Cache-Control": "public, max-age=31536000"},
+    )
+
+
 @router.get("/source")
 def get_source(song_id: str, request: Request) -> FileResponse:
     storage = request.app.state.storage
