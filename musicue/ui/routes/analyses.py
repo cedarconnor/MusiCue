@@ -32,11 +32,21 @@ def get_stem(
     song_id: str, analysis_id: str, stem: str, request: Request
 ) -> FileResponse:
     storage = request.app.state.storage
-    p = storage.analysis_dir(song_id, analysis_id) / "stems" / f"{stem}.wav"
-    if not p.exists():
+    stems_root = storage.analysis_dir(song_id, analysis_id) / "stems"
+    # Demucs writes to <stems_root>/<model_name>/<audio_stem>/<stem>.wav.
+    # Glob handles different models (htdemucs_ft, htdemucs_6s, ...) and
+    # different source filenames without hard-coding either.
+    matches = list(stems_root.glob(f"**/{stem}.wav"))
+    if not matches:
+        # Also accept the flat layout (analysis_dir/stems/<stem>.wav) so a
+        # future run that flattens the demucs output keeps working.
+        flat = stems_root / f"{stem}.wav"
+        if flat.exists():
+            matches = [flat]
+    if not matches:
         raise HTTPException(status_code=404, detail="stem not generated")
     return FileResponse(
-        p,
+        matches[0],
         media_type="audio/wav",
         headers={"Cache-Control": "public, max-age=31536000"},
     )
