@@ -246,5 +246,33 @@ def diff(
         typer.echo(f"\nDiff report saved to {out}")
 
 
+@app.command()
+def ui(
+    host: str = typer.Option("127.0.0.1", "--host"),
+    port: int = typer.Option(8765, "--port"),
+    open_browser: bool = typer.Option(True, "--open/--no-open"),
+) -> None:
+    """Launch the local Web UI server."""
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from musicue.ui.server import create_app
+
+    if host != "127.0.0.1":
+        typer.secho(
+            f"Warning: binding to {host} exposes the server with no auth.",
+            fg=typer.colors.YELLOW,
+        )
+
+    app_obj = create_app()
+    url = f"http://{host}:{port}/"
+    if open_browser:
+        threading.Timer(1.0, webbrowser.open, args=(url,)).start()
+    typer.echo(f"MusiCue UI on {url}")
+    uvicorn.run(app_obj, host=host, port=port, log_level="info")
+
+
 if __name__ == "__main__":
     app()

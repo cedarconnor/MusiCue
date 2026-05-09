@@ -23,26 +23,44 @@ _PANS = {
 }
 _DEFAULT_PAN = 0.0
 
-# Click tone frequencies per track type (Hz)
+# Click tone frequencies per track type (Hz). MIDI-metronome style:
+# very high (3-6.5 kHz) pure sine beeps that sit ABOVE the entire
+# musical spectrum and read as obvious synthetic ticks against any
+# source material.
 _FREQS = {
-    "kick": 80,
-    "snare": 200,
-    "hat": 800,
-    "hihat": 800,
-    "downbeat": 440,
-    "downbeat_pulse": 440,
-    "vocal_phrase": 600,
-    "drop": 150,
+    "kick": 4000,
+    "snare": 5000,
+    "hat": 6500,
+    "hihat": 6500,
+    "downbeat": 3500,
+    "downbeat_pulse": 3500,
+    "vocal_phrase": 5500,
+    "drop": 4500,
+    "accent": 4500,
 }
-_DEFAULT_FREQ = 330
+_DEFAULT_FREQ = 5000
+
+# Source mix is dropped to 0.15 so the clicks (peaking near full scale)
+# clearly dominate. Bumped from 0.25 because the prior pass was still
+# subtle against energetic source material.
+_SOURCE_GAIN = 0.15
+_CLICK_GAIN = 1.0
 
 
-def _click(strength: float, freq: int, sr: int, decay_ms: float = 15.0) -> np.ndarray:
+def _click(strength: float, freq: int, sr: int, decay_ms: float = 30.0) -> np.ndarray:
+    """High-pitched MIDI-metronome beep: pure sine with hard onset and
+    exponential decay. No noise component (sounded like a cymbal crash);
+    the high pitch alone carries the percussive feel."""
     n = int(decay_ms * sr / 1000)
     t = np.arange(n) / sr
-    env = np.exp(-t / (decay_ms / 1000 / 3))
-    wave = env * np.sin(2 * np.pi * freq * t)
-    return (wave * strength * 0.8).astype(np.float32)
+    # Sharp exponential decay -- ~75% of energy in the first 8 ms so the
+    # click reads as a tick rather than a tone.
+    env = np.exp(-t / (decay_ms / 1000 / 4))
+    sine = env * np.sin(2 * np.pi * freq * t)
+    # tanh(1.5x) gives a perceived ~3 dB loudness boost without harsh
+    # hard-clip artifacts. Clicks now peak ~0.9 vs 0.6 before.
+    out = np.tanh(1.5 * sine * strength * _CLICK_GAIN)
+    return out.astype(np.float32)
 
 
 def _pan_stereo(mono: np.ndarray, pan: float) -> np.ndarray:
@@ -62,7 +80,15 @@ def render_click_track(
     mix = np.zeros((n_samples, 2), dtype=np.float32)
 
     if source_audio and source_audio.exists():
-        data, file_sr = sf.read(str(source_audio))
+        try:
+            data, file_sr = sf.read(str(source_audio))
+        except sf.LibsndfileError:
+            # Compressed input (m4a/mp3/aac); libsndfile can't decode -- use
+            # librosa which proxies through audioread + ffmpeg.
+            import librosa
+
+            y, file_sr = librosa.load(str(source_audio), sr=None, mono=False)
+            data = (y.T if y.ndim > 1 else y).astype(np.float32)
         if data.ndim == 1:
             data = np.stack([data, data], axis=1)
         if file_sr != sr:
@@ -70,7 +96,7 @@ def render_click_track(
 
             data = librosa.resample(data.T, orig_sr=file_sr, target_sr=sr).T
         end = min(len(data), n_samples)
-        mix[:end] += data[:end].astype(np.float32) * 0.4
+        mix[:end] += data[:end].astype(np.float32) * _SOURCE_GAIN
 
     for track in cuesheet.tracks:
         if track.type not in ("impulse", "envelope"):
