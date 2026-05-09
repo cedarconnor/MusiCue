@@ -78,11 +78,57 @@ export default function Library() {
       </div>
       {error && <div style={{ color: "#f88" }}>Error: {error}</div>}
       {activeJob && (
-        <div style={{ margin: "8px 0" }}>
-          Analyzing…{" "}
-          {lastProgress
-            ? `${Math.round(lastProgress.fraction * 100)}% (${lastProgress.stage ?? ""})`
-            : "queued"}
+        <div
+          style={{
+            margin: "12px 0",
+            padding: "12px 16px",
+            background: "#1d2a3a",
+            border: "1px solid #2d4a6a",
+            borderRadius: 6,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+              marginBottom: 6,
+            }}
+          >
+            <span style={{ color: "#cde", fontWeight: 600 }}>
+              {lastProgress?.stage
+                ? `Analyzing — ${lastProgress.stage}`
+                : "Analyzing…"}
+            </span>
+            <span
+              style={{
+                color: "#9af",
+                fontFamily: "monospace",
+                fontSize: 13,
+              }}
+            >
+              {lastProgress
+                ? `${Math.round(lastProgress.fraction * 100)}%`
+                : "queued"}
+            </span>
+          </div>
+          <div
+            style={{
+              height: 6,
+              background: "#0f1822",
+              borderRadius: 3,
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                height: "100%",
+                width: `${(lastProgress?.fraction ?? 0) * 100}%`,
+                background: "#5a8ec5",
+                transition: "width 0.2s ease-out",
+              }}
+            />
+          </div>
         </div>
       )}
       {songs.length === 0 && !activeJob && (
@@ -91,32 +137,40 @@ export default function Library() {
         </div>
       )}
       <ul style={{ listStyle: "none", padding: 0 }}>
-        {songs.map((s) => (
-          <li
-            key={s.id}
-            style={{
-              padding: 12,
-              borderBottom: "1px solid #333",
-              display: "flex",
-              justifyContent: "space-between",
-            }}
-          >
-            <span>
-              {s.has_analysis ? (
-                <Link to={`/editor/${s.id}/${s.analysis_ids[0]}`}>
-                  {s.title}
-                </Link>
-              ) : (
-                <span>{s.title}</span>
-              )}
-            </span>
-            <span style={{ color: "#888", fontSize: 12 }}>
-              {s.has_analysis
-                ? `${s.analysis_ids.length} analysis`
-                : "no analysis"}
-            </span>
-          </li>
-        ))}
+        {songs.map((s) => {
+          const isAnalyzing = activeJob?.songId === s.id;
+          const pct = isAnalyzing && lastProgress
+            ? `${Math.round(lastProgress.fraction * 100)}%`
+            : null;
+          return (
+            <li
+              key={s.id}
+              style={{
+                padding: 12,
+                borderBottom: "1px solid #333",
+                display: "flex",
+                justifyContent: "space-between",
+              }}
+            >
+              <span>
+                {s.has_analysis ? (
+                  <Link to={`/editor/${s.id}/${s.analysis_ids[0]}`}>
+                    {s.title}
+                  </Link>
+                ) : (
+                  <span>{s.title}</span>
+                )}
+              </span>
+              <span style={{ color: isAnalyzing ? "#9af" : "#888", fontSize: 12 }}>
+                {isAnalyzing
+                  ? `Analyzing… ${pct ?? "queued"}`
+                  : s.has_analysis
+                  ? `${s.analysis_ids.length} analysis`
+                  : "no analysis"}
+              </span>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
