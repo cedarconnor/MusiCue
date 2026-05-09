@@ -12,16 +12,73 @@ interface ActiveJob {
   songId?: string;
 }
 
+const ACTIVE_JOB_KEY = "musicue:activeJob";
+
+function loadActiveJob(): ActiveJob | null {
+  try {
+    const raw = localStorage.getItem(ACTIVE_JOB_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ActiveJob;
+    return parsed.jobId ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistActiveJob(job: ActiveJob | null): void {
+  try {
+    if (job) localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify(job));
+    else localStorage.removeItem(ACTIVE_JOB_KEY);
+  } catch {
+    // Storage disabled / quota; in-memory state still works.
+  }
+}
+
 export default function Library() {
   const [songs, setSongs] = useState<Song[]>([]);
-  const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
+  const [activeJob, setActiveJobState] = useState<ActiveJob | null>(loadActiveJob);
   const [error, setError] = useState<string | null>(null);
   const { events, done } = useJob(activeJob?.jobId ?? null);
   const nav = useNavigate();
 
+  const setActiveJob = (next: ActiveJob | null) => {
+    persistActiveJob(next);
+    setActiveJobState(next);
+  };
+
   const refresh = async () => setSongs(await listSongs());
   useEffect(() => {
     refresh().catch((e) => setError(String(e)));
+  }, []);
+
+  // Validate any persisted activeJob from a previous tab/session: if the
+  // server doesn't recognize it (process restarted, job manager wiped),
+  // drop the phantom so the UI doesn't get stuck showing a progress card
+  // for a job that will never emit events.
+  useEffect(() => {
+    if (!activeJob) return;
+    let cancelled = false;
+    fetch(`/api/jobs/${activeJob.jobId}`).then((r) => {
+      if (cancelled) return;
+      if (!r.ok) setActiveJob(null);
+      else if (r.ok) {
+        // If the server already considers the job done, drop it -- the
+        // SSE replay will just emit a status + terminal event and close,
+        // which is fine, but clearing now also refreshes the song list.
+        r.json().then((snap) => {
+          if (
+            !cancelled &&
+            ["complete", "failed", "cancelled"].includes(snap.status)
+          ) {
+            refresh().then(() => setActiveJob(null));
+          }
+        });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
