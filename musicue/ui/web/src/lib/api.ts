@@ -88,3 +88,11 @@ export function clickWavUrl(songId: string, analysisId: string): string {
 export function sourceAudioUrl(songId: string): string {
   return `/api/songs/${songId}/source`;
 }
+
+export function stemAudioUrl(
+  songId: string,
+  analysisId: string,
+  stem: string,
+): string {
+  return `/api/songs/${songId}/analyses/${analysisId}/stems/${stem}`;
+}
