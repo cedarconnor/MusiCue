@@ -1,7 +1,10 @@
-"""Jobs router: snapshot, WS stream, cancel."""
+"""Jobs router: snapshot, WS stream, SSE stream, cancel."""
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -23,6 +26,8 @@ def job_snapshot(job_id: str, request: Request) -> dict:
 
 @router.websocket("/{job_id}/stream")
 async def job_stream(ws: WebSocket, job_id: str) -> None:
+    """Legacy WS stream. Will be removed in v0.1b once the frontend has
+    fully migrated to the SSE endpoint below."""
     await ws.accept()
     mgr = ws.app.state.jobs
     if mgr.get(job_id) is None:
@@ -40,6 +45,29 @@ async def job_stream(ws: WebSocket, job_id: str) -> None:
         await ws.close()
     except RuntimeError:
         pass
+
+
+@router.get("/{job_id}/events")
+async def job_events(job_id: str, request: Request) -> StreamingResponse:
+    """SSE stream -- same event shape as the WS endpoint."""
+    mgr = request.app.state.jobs
+    if mgr.get(job_id) is None:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    async def stream():
+        async for evt in mgr.subscribe(job_id):
+            yield f"data: {json.dumps(evt)}\n\n"
+            if evt.get("type") in ("complete", "error", "cancelled"):
+                break
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/{job_id}/cancel")
