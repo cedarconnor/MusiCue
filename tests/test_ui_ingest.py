@@ -110,3 +110,37 @@ def test_download_url_invokes_progress_callback(
     )
 
     assert seen == [0.5, 1.0]
+
+
+def test_download_thumbnail_writes_jpg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_bytes = b"\xff\xd8\xff\xe0fakejpeg"
+
+    def fake_urlopen(url: str, timeout: float = 10.0):
+        class _Resp:
+            def __enter__(self_inner): return self_inner
+            def __exit__(self_inner, *a): return None
+            def read(self_inner): return fake_bytes
+        return _Resp()
+
+    monkeypatch.setattr(ingest, "_urlopen", fake_urlopen)
+
+    out = tmp_path / "thumbnail.jpg"
+    ingest._download_thumbnail("https://example.com/thumb.jpg", out)
+
+    assert out.read_bytes() == fake_bytes
+
+
+def test_download_thumbnail_swallows_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(url: str, timeout: float = 10.0):
+        raise OSError("network down")
+
+    monkeypatch.setattr(ingest, "_urlopen", boom)
+
+    out = tmp_path / "thumbnail.jpg"
+    # Must not raise; thumbnail is best-effort.
+    ingest._download_thumbnail("https://example.com/thumb.jpg", out)
+    assert not out.exists()

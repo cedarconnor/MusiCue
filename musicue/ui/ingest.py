@@ -104,3 +104,19 @@ def download_url(
         duration_sec=float(info["duration"]) if info.get("duration") else None,
         source_url=info.get("webpage_url") or url,
     )
+
+
+def _urlopen(url: str, timeout: float = 10.0):  # pragma: no cover - net path
+    from urllib.request import urlopen
+
+    return urlopen(url, timeout=timeout)
+
+
+def _download_thumbnail(url: str, dest: Path) -> None:
+    """Best-effort thumbnail fetch. Swallows errors — the v0.1b Library
+    reads-or-skips, so a missing thumbnail.jpg is not fatal."""
+    try:
+        with _urlopen(url, timeout=10.0) as r:
+            dest.write_bytes(r.read())
+    except Exception:
+        return
