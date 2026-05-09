@@ -27,6 +27,19 @@ export async function startAnalyze(songId: string): Promise<{ job_id: string }> 
   return r.json();
 }
 
+export async function analyzeUrl(url: string): Promise<{ job_id: string }> {
+  const r = await fetch("/api/songs/from_url", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  if (!r.ok) {
+    const detail = (await r.json().catch(() => ({}))).detail ?? r.statusText;
+    throw new Error(`analyzeUrl: ${detail}`);
+  }
+  return r.json();
+}
+
 export interface AnalysisJSON {
   tempo?: { bpm_global?: number; bpm?: number };
   source?: { duration_sec?: number; sample_rate?: number };

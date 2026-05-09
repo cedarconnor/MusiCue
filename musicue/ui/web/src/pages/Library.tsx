@@ -2,10 +2,19 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Song, listSongs, startAnalyze, uploadSong } from "../lib/api";
 import { useJob } from "../lib/jobs";
+import URLDropZone from "../components/URLDropZone";
+
+interface ActiveJob {
+  jobId: string;
+  // Set for file uploads; absent for URL-ingest until the complete event
+  // delivers the song_id (URL-ingested songs are SHA-keyed off the
+  // downloaded WAV, which only exists after stage 1 finishes).
+  songId?: string;
+}
 
 export default function Library() {
   const [songs, setSongs] = useState<Song[]>([]);
-  const [activeJob, setActiveJob] = useState<{ jobId: string; songId: string } | null>(null);
+  const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { events, done } = useJob(activeJob?.jobId ?? null);
   const nav = useNavigate();
@@ -18,12 +27,17 @@ export default function Library() {
   useEffect(() => {
     if (!done || !activeJob) return;
     if (done.type === "complete") {
-      refresh().then(() =>
-        nav(`/editor/${activeJob.songId}/${done.result.analysis_id}`),
-      );
+      const songId = done.result.song_id ?? activeJob.songId;
+      const analysisId = done.result.analysis_id;
+      refresh().then(() => {
+        if (songId && analysisId) nav(`/editor/${songId}/${analysisId}`);
+      });
     } else if (done.type === "error") {
       setError(done.error);
     }
+    // Either way, drop the active job so the in-progress card unmounts.
+    setActiveJob(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [done]);
 
   async function onDrop(e: React.DragEvent) {
@@ -48,6 +62,7 @@ export default function Library() {
   return (
     <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
       <h1>Library</h1>
+      <URLDropZone onJobStarted={(jobId) => setActiveJob({ jobId })} />
       <div
         onDragOver={(e) => e.preventDefault()}
         onDrop={onDrop}
@@ -71,7 +86,9 @@ export default function Library() {
         </div>
       )}
       {songs.length === 0 && !activeJob && (
-        <div style={{ color: "#888" }}>No songs yet. Drop an audio file above.</div>
+        <div style={{ color: "#888" }}>
+          No songs yet. Paste a URL above or drop an audio file.
+        </div>
       )}
       <ul style={{ listStyle: "none", padding: 0 }}>
         {songs.map((s) => (
