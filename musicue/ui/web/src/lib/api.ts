@@ -3,6 +3,7 @@ export interface Song {
   title: string;
   has_analysis: boolean;
   analysis_ids: string[];
+  source_url?: string | null;
 }
 
 export async function listSongs(): Promise<Song[]> {
@@ -27,7 +28,9 @@ export async function startAnalyze(songId: string): Promise<{ job_id: string }> 
 }
 
 export interface AnalysisJSON {
-  tempo?: { bpm: number };
+  tempo?: { bpm_global?: number; bpm?: number };
+  source?: { duration_sec?: number; sample_rate?: number };
+  lufs_integrated?: number | null;
   beats?: Array<{ t: number; downbeat: boolean }>;
   sections?: Array<{ start: number; end: number; label: string }>;
   onsets?: Record<
@@ -35,6 +38,12 @@ export interface AnalysisJSON {
     Array<{ t: number; strength?: number; drum_class?: string }>
   >;
   curves?: Record<string, { hop_sec: number; values: number[] }>;
+}
+
+export async function getSong(songId: string): Promise<Song> {
+  const r = await fetch(`/api/songs/${songId}`);
+  if (!r.ok) throw new Error(`getSong: ${r.status}`);
+  return r.json();
 }
 
 export async function getAnalysis(
