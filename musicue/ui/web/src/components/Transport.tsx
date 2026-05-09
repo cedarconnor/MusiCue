@@ -52,7 +52,18 @@ export default function Transport({ ws, songId, analysisId }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [ws]);
 
-  // Sync click <audio> element with WaveSurfer.
+  // Mute WaveSurfer when the click track is on. The click WAV produced by
+  // musicue.listen.render_click_track already mixes the source audio (at
+  // 0.4 gain) with the click impulses (at 0.8 gain), so playing both
+  // simultaneously would double the source and bury the clicks. Muting the
+  // WaveSurfer audio while the click WAV plays gives the user a clearly
+  // audible difference between ON and off.
+  useEffect(() => {
+    if (!ws) return;
+    ws.setMuted(clickOn);
+  }, [ws, clickOn]);
+
+  // Sync click <audio> element with WaveSurfer's transport.
   useEffect(() => {
     if (!ws) return;
     const click = clickAudioRef.current;
