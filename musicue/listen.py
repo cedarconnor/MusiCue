@@ -23,54 +23,43 @@ _PANS = {
 }
 _DEFAULT_PAN = 0.0
 
-# Click tone frequencies per track type (Hz). Pushed up into the
-# 1.2-4 kHz range so the clicks sit ABOVE most musical content (which
-# generally lives below ~1 kHz fundamental); makes them clearly audible
-# over the source mix.
+# Click tone frequencies per track type (Hz). MIDI-metronome style:
+# very high (3-6.5 kHz) pure sine beeps that sit ABOVE the entire
+# musical spectrum and read as obvious synthetic ticks against any
+# source material.
 _FREQS = {
-    "kick": 1500,
-    "snare": 2000,
-    "hat": 3500,
-    "hihat": 3500,
-    "downbeat": 1200,
-    "downbeat_pulse": 1200,
-    "vocal_phrase": 2500,
-    "drop": 1800,
-    "accent": 2200,
+    "kick": 4000,
+    "snare": 5000,
+    "hat": 6500,
+    "hihat": 6500,
+    "downbeat": 3500,
+    "downbeat_pulse": 3500,
+    "vocal_phrase": 5500,
+    "drop": 4500,
+    "accent": 4500,
 }
-_DEFAULT_FREQ = 2000
+_DEFAULT_FREQ = 5000
 
-# Source mix and click levels. Source is dropped to 0.25 so clicks at
-# unity dominate the mix; clicks themselves get a sharp noise transient
-# layered on top of the sine for a "tick" attack that survives over
-# music with strong transients of its own.
-_SOURCE_GAIN = 0.25
+# Source mix is dropped to 0.15 so the clicks (peaking near full scale)
+# clearly dominate. Bumped from 0.25 because the prior pass was still
+# subtle against energetic source material.
+_SOURCE_GAIN = 0.15
 _CLICK_GAIN = 1.0
 
 
-def _click(strength: float, freq: int, sr: int, decay_ms: float = 18.0) -> np.ndarray:
-    """Sharp metronome-style click: noise burst (first 1.5 ms) layered with
-    an exponentially decaying sine. The noise burst gives a percussive
-    transient that punches through the music; the sine carries the
-    pitch that disambiguates kick/snare/hihat etc."""
+def _click(strength: float, freq: int, sr: int, decay_ms: float = 30.0) -> np.ndarray:
+    """High-pitched MIDI-metronome beep: pure sine with hard onset and
+    exponential decay. No noise component (sounded like a cymbal crash);
+    the high pitch alone carries the percussive feel."""
     n = int(decay_ms * sr / 1000)
     t = np.arange(n) / sr
-
-    # Sine carrier with quick decay envelope.
-    env = np.exp(-t / (decay_ms / 1000 / 3))
+    # Sharp exponential decay -- ~75% of energy in the first 8 ms so the
+    # click reads as a tick rather than a tone.
+    env = np.exp(-t / (decay_ms / 1000 / 4))
     sine = env * np.sin(2 * np.pi * freq * t)
-
-    # Noise transient on the first ~1.5 ms only -- a sharp tick attack.
-    noise_len = max(1, int(0.0015 * sr))
-    noise_env = np.exp(-np.arange(noise_len) / (noise_len / 4))
-    noise = np.zeros(n, dtype=np.float32)
-    rng = np.random.default_rng(seed=int(freq))
-    noise[:noise_len] = rng.standard_normal(noise_len).astype(np.float32) * noise_env
-
-    wave = 0.7 * sine + 0.3 * noise
-    out = wave * strength * _CLICK_GAIN
-    # Soft-clip to [-1, 1] without harsh hard clipping artifacts.
-    out = np.tanh(out)
+    # tanh(1.5x) gives a perceived ~3 dB loudness boost without harsh
+    # hard-clip artifacts. Clicks now peak ~0.9 vs 0.6 before.
+    out = np.tanh(1.5 * sine * strength * _CLICK_GAIN)
     return out.astype(np.float32)
 
 
