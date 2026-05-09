@@ -7,6 +7,9 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from pydantic import BaseModel
+
+from musicue.ui import ingest
 
 router = APIRouter(prefix="/api", tags=["songs"])
 
@@ -108,3 +111,83 @@ async def analyze_song(song_id: str, request: Request) -> dict:
 
     asyncio.create_task(runner())
     return {"job_id": job.id, "queue": "analyze", "status": "queued"}
+
+
+class FromUrlRequest(BaseModel):
+    url: str
+
+
+@router.post("/songs/from_url", status_code=202)
+async def songs_from_url(request: Request, body: FromUrlRequest) -> dict:
+    storage = request.app.state.storage
+    jobs = request.app.state.jobs
+    analyze_func = getattr(request.app.state, "analyze_func", _default_analyze)
+
+    # Pre-validate so callers get a 400 instead of an async error event.
+    try:
+        ingest._validate_url(body.url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    job = jobs.submit(kind="ingest", payload={"url": body.url})
+
+    async def publish(event: dict) -> None:
+        await jobs.publish(job.id, event)
+
+    async def runner() -> None:
+        loop = asyncio.get_running_loop()
+        try:
+            with tempfile.TemporaryDirectory(prefix="musicue-ingest-") as td:
+                # Stage 1: download (0..0.3).
+                def dl_progress(f: float) -> None:
+                    asyncio.run_coroutine_threadsafe(
+                        publish(
+                            {
+                                "type": "progress",
+                                "stage": "downloading",
+                                "fraction": f * 0.3,
+                            }
+                        ),
+                        loop,
+                    )
+
+                track = await asyncio.to_thread(
+                    ingest.download_url,
+                    body.url,
+                    Path(td),
+                    dl_progress,
+                )
+
+                rec = storage.register_source(track.audio_path, title=track.title)
+                if track.source_url:
+                    (storage.song_dir(rec.id) / "source_url.txt").write_text(
+                        track.source_url, encoding="utf-8"
+                    )
+                if track.thumbnail_url:
+                    await asyncio.to_thread(
+                        ingest._download_thumbnail,
+                        track.thumbnail_url,
+                        storage.song_dir(rec.id) / "thumbnail.jpg",
+                    )
+
+            # Stage 2: analyze (0.3..1.0). Reuse the existing analyze_func
+            # contract; rescale fractions in a wrapping publish.
+            async def rescaled_publish(event: dict) -> None:
+                if event.get("type") == "progress" and "fraction" in event:
+                    f = float(event["fraction"])
+                    event = {**event, "fraction": 0.3 + 0.7 * f}
+                await publish(event)
+
+            run_dir = storage.analyses_dir(rec.id) / "pending"
+            analysis_id = await analyze_func(
+                rec.source_path, run_dir, rescaled_publish
+            )
+            await jobs.complete(
+                job.id,
+                result={"song_id": rec.id, "analysis_id": analysis_id},
+            )
+        except Exception as exc:  # noqa: BLE001
+            await jobs.fail(job.id, error=f"{type(exc).__name__}: {exc}")
+
+    asyncio.create_task(runner())
+    return {"job_id": job.id, "queue": "ingest", "status": "queued"}
