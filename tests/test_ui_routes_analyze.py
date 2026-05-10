@@ -49,7 +49,14 @@ def test_analyze_unknown_song_404(tmp_path):
     assert r.status_code == 404
 
 
-def test_jobs_websocket_streams_progress(tmp_path):
+def test_jobs_sse_streams_progress(tmp_path):
+    """v0.1b: WS endpoint dropped in favour of SSE-only.
+
+    Same payload contract; the previous test exercised the WS path that
+    no longer exists. Migrated to /events.
+    """
+    import json
+
     app = create_app(storage_root=tmp_path)
     app.state.analyze_func = fake_run_analysis
     client = TestClient(app)
@@ -63,12 +70,12 @@ def test_jobs_websocket_streams_progress(tmp_path):
     job_id = r.json()["job_id"]
 
     received: list[dict] = []
-    with client.websocket_connect(f"/api/jobs/{job_id}/stream") as ws:
-        for _ in range(10):
-            try:
-                evt = ws.receive_json()
-            except Exception:
-                break
+    with client.stream("GET", f"/api/jobs/{job_id}/events") as resp:
+        assert resp.status_code == 200
+        for line in resp.iter_lines():
+            if not line or not line.startswith("data:"):
+                continue
+            evt = json.loads(line[len("data:"):].strip())
             received.append(evt)
             if evt.get("type") in ("complete", "error"):
                 break
