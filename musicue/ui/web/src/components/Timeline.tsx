@@ -92,9 +92,23 @@ export default function Timeline({
     const fit = Math.max(1, host.clientWidth / dur);
     fitPpsRef.current = fit;
     const nextPps = fit * zoomFactor;
-    ws.zoom(nextPps);
+    // Set overlay state first so the OnsetMarkers/PhraseBlocks canvases
+    // mount even if a stem WaveSurfer's zoom call below throws (which
+    // happens when a stem audio request 404'd: WaveSurfer's zoom raises
+    // "No audio loaded" and would otherwise abort the rest of this fn).
+    setPps(nextPps);
+    setDuration(dur);
+    try {
+      ws.zoom(nextPps);
+    } catch {
+      // mix not yet decoded; next ready-fire will retry.
+    }
     for (const stem of STEMS) {
-      stemsRef.current[stem]?.zoom(nextPps);
+      try {
+        stemsRef.current[stem]?.zoom(nextPps);
+      } catch {
+        // stem audio missing or not loaded; skip — overlays still render.
+      }
     }
     if (overlayRef.current) {
       const totalWidth = Math.ceil(dur * nextPps);
@@ -103,8 +117,6 @@ export default function Timeline({
       overlayRef.current.height = OVERLAY_HEIGHT;
       drawAnalysisLayer(overlayRef.current, analysis, nextPps);
     }
-    setPps(nextPps);
-    setDuration(dur);
   }
 
   useEffect(() => {
