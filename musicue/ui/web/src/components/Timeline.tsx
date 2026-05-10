@@ -6,7 +6,8 @@ import {
   sourceAudioUrl,
   stemAudioUrl,
 } from "../lib/api";
-import { OVERLAY_HEIGHT, drawAnalysisLayer } from "./AnalysisOverlay";
+import MixLaneOverlay, { OVERLAY_HEIGHT } from "./MixLaneOverlay";
+import { drawAllMixLayers } from "../lib/analysisLayers";
 import OnsetMarkers, { Stem as OverlayStem } from "./OnsetMarkers";
 import PhraseBlocks from "./PhraseBlocks";
 import { SelectedAnnotation } from "./LabelChipStrip";
@@ -115,7 +116,7 @@ export default function Timeline({
       overlayRef.current.width = totalWidth;
       overlayRef.current.style.width = `${totalWidth}px`;
       overlayRef.current.height = OVERLAY_HEIGHT;
-      drawAnalysisLayer(overlayRef.current, analysis, nextPps);
+      drawAllMixLayers(overlayRef.current, analysis, nextPps);
     }
   }
 
@@ -262,16 +263,7 @@ export default function Timeline({
         style={{ position: "relative", overflowX: "auto", overflowY: "hidden" }}
       >
         <div ref={mixHostRef} />
-        <canvas
-          ref={overlayRef}
-          style={{
-            position: "absolute",
-            top: MIX_HEIGHT,
-            left: 0,
-            height: OVERLAY_HEIGHT,
-            pointerEvents: "none",
-          }}
-        />
+        <MixLaneOverlay ref={overlayRef} topPx={MIX_HEIGHT} />
         <div style={{ height: OVERLAY_HEIGHT }} />
         {STEMS.map((stem) => (
           <div
