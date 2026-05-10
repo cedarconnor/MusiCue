@@ -6,6 +6,9 @@ import { AnalysisJSON, Song, getAnalysis, getSong } from "../lib/api";
 import Timeline from "../components/Timeline";
 import Transport from "../components/Transport";
 import MetadataCard from "../components/MetadataCard";
+import LabelChipStrip, {
+  SelectedAnnotation,
+} from "../components/LabelChipStrip";
 import {
   EMPTY_LOOP,
   LoopState,
@@ -29,6 +32,7 @@ export default function Editor() {
   const [loop, setLoop] = useState<LoopState>(EMPTY_LOOP);
   const loopRef = useRef<LoopState>(EMPTY_LOOP);
   const regionsRef = useRef<RegionsPlugin | null>(null);
+  const [selected, setSelected] = useState<SelectedAnnotation>(null);
 
   // Keep loopRef in sync so bindLoopKeys/bindLoopWraparound (which read via
   // a stable getter) always see the latest state.
@@ -86,11 +90,14 @@ export default function Editor() {
   return (
     <div>
       <MetadataCard song={song} analysis={analysis} />
+      <LabelChipStrip selected={selected} analysis={analysis} />
       <Timeline
         songId={songId}
         analysisId={analysisId}
         analysis={analysis}
         onReady={setWs}
+        selected={selected}
+        onSelect={setSelected}
       />
       <Transport ws={ws} songId={songId} analysisId={analysisId} />
       <div

@@ -7,12 +7,17 @@ import {
   stemAudioUrl,
 } from "../lib/api";
 import { OVERLAY_HEIGHT, drawAnalysisLayer } from "./AnalysisOverlay";
+import OnsetMarkers, { Stem as OverlayStem } from "./OnsetMarkers";
+import PhraseBlocks from "./PhraseBlocks";
+import { SelectedAnnotation } from "./LabelChipStrip";
 
 interface Props {
   songId: string;
   analysisId: string;
   analysis: AnalysisJSON;
   onReady?: (ws: WaveSurfer) => void;
+  selected?: SelectedAnnotation;
+  onSelect?: (sel: SelectedAnnotation) => void;
 }
 
 const STEMS = ["drums", "bass", "vocals", "other"] as const;
@@ -53,6 +58,8 @@ export default function Timeline({
   analysisId,
   analysis,
   onReady,
+  selected,
+  onSelect,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mixHostRef = useRef<HTMLDivElement>(null);
@@ -73,27 +80,31 @@ export default function Timeline({
   const fitPpsRef = useRef<number>(1);
   const [zoom, setZoom] = useState(1);
   const [solo, setSolo] = useState<Stem | null>(null);
+  const [pps, setPps] = useState(1);
+  const [duration, setDuration] = useState(0);
 
   function applyZoom(zoomFactor: number) {
     const ws = mixRef.current;
     const host = mixHostRef.current;
     if (!ws || !host) return;
-    const duration = ws.getDuration();
-    if (!duration) return;
-    const fit = Math.max(1, host.clientWidth / duration);
+    const dur = ws.getDuration();
+    if (!dur) return;
+    const fit = Math.max(1, host.clientWidth / dur);
     fitPpsRef.current = fit;
-    const pps = fit * zoomFactor;
-    ws.zoom(pps);
+    const nextPps = fit * zoomFactor;
+    ws.zoom(nextPps);
     for (const stem of STEMS) {
-      stemsRef.current[stem]?.zoom(pps);
+      stemsRef.current[stem]?.zoom(nextPps);
     }
     if (overlayRef.current) {
-      const totalWidth = Math.ceil(duration * pps);
+      const totalWidth = Math.ceil(dur * nextPps);
       overlayRef.current.width = totalWidth;
       overlayRef.current.style.width = `${totalWidth}px`;
       overlayRef.current.height = OVERLAY_HEIGHT;
-      drawAnalysisLayer(overlayRef.current, analysis, pps);
+      drawAnalysisLayer(overlayRef.current, analysis, nextPps);
     }
+    setPps(nextPps);
+    setDuration(dur);
   }
 
   useEffect(() => {
@@ -289,12 +300,59 @@ export default function Timeline({
                 {solo === stem ? "soloed" : "solo"}
               </button>
             </div>
-            <div
-              ref={(el) => {
-                stemHostRefs.current[stem] = el;
-              }}
-              style={{ flex: 1, minWidth: 0 }}
-            />
+            <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+              <div
+                ref={(el) => {
+                  stemHostRefs.current[stem] = el;
+                }}
+                style={{ minWidth: 0 }}
+              />
+              {duration > 0 && analysis.onsets?.[stem] && (
+                <OnsetMarkers
+                  stem={stem as OverlayStem}
+                  onsets={analysis.onsets[stem]}
+                  duration={duration}
+                  pxPerSec={pps}
+                  height={STEM_HEIGHT}
+                  drumClasses={stem === "drums"}
+                  selectedIdx={
+                    selected?.kind === "onset" && selected.stem === stem
+                      ? selected.idx
+                      : null
+                  }
+                  onSelect={(idx) =>
+                    onSelect?.({
+                      kind: "onset",
+                      stem: stem as OverlayStem,
+                      idx,
+                    })
+                  }
+                />
+              )}
+              {duration > 0 &&
+                (stem === "vocals" || stem === "other") &&
+                analysis.phrases?.[stem] && (
+                  <PhraseBlocks
+                    stem={stem as OverlayStem}
+                    phrases={analysis.phrases[stem]}
+                    duration={duration}
+                    pxPerSec={pps}
+                    height={STEM_HEIGHT}
+                    selectedIdx={
+                      selected?.kind === "phrase" && selected.stem === stem
+                        ? selected.idx
+                        : null
+                    }
+                    onSelect={(idx) =>
+                      onSelect?.({
+                        kind: "phrase",
+                        stem: stem as OverlayStem,
+                        idx,
+                      })
+                    }
+                  />
+                )}
+            </div>
           </div>
         ))}
       </div>
