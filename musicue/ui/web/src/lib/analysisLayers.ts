@@ -87,7 +87,60 @@ export function drawBeats(
   }
 }
 
-/** Composite paint: sections, mix-lane onsets, beats. v0.1c adds drawTransitionRamps in Task 4.1. */
+const SHAPE_FN: Record<string, (p: number) => number> = {
+  linear: (p) => p,
+  ease_in: (p) => p * p,
+  ease_out: (p) => 1 - (1 - p) * (1 - p),
+  ease_in_out: (p) =>
+    p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2,
+};
+
+const SECTION_LABEL_TINT: Record<string, string> = {
+  intro: "rgba(150, 200, 255, 0.7)",
+  verse: "rgba(200, 200, 200, 0.7)",
+  chorus: "rgba(255, 200, 100, 0.7)",
+  bridge: "rgba(200, 150, 220, 0.7)",
+  solo: "rgba(255, 150, 150, 0.7)",
+  outro: "rgba(120, 120, 120, 0.7)",
+  end: "rgba(120, 120, 120, 0.7)",
+};
+
+const RAMP_H = 14;
+const RAMP_BASELINE_Y = SECTION_H;
+
+export function drawTransitionRamps(
+  ctx: CanvasRenderingContext2D,
+  analysis: AnalysisJSON,
+  pxPerSec: number,
+): void {
+  for (const tr of analysis.section_transitions ?? []) {
+    const fn = SHAPE_FN[tr.ramp.shape] ?? SHAPE_FN.linear;
+    const xStart = tr.ramp.t_start * pxPerSec;
+    const xEnd = tr.ramp.t_end * pxPerSec;
+    const w = Math.max(1, xEnd - xStart);
+    const color = SECTION_LABEL_TINT[tr.to] ?? "rgba(255, 235, 59, 0.7)";
+
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(xStart, RAMP_BASELINE_Y);
+    const N = 16;
+    for (let i = 0; i <= N; i++) {
+      const p = i / N;
+      const x = xStart + w * p;
+      const y = RAMP_BASELINE_Y - fn(p) * RAMP_H;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(xEnd, RAMP_BASELINE_Y);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}
+
+/** Composite paint: sections, ramps, mix-lane onsets, beats. */
 export function drawAllMixLayers(
   canvas: HTMLCanvasElement,
   analysis: AnalysisJSON,
@@ -97,6 +150,7 @@ export function drawAllMixLayers(
   if (!ctx) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawSections(ctx, analysis, pxPerSec);
+  drawTransitionRamps(ctx, analysis, pxPerSec);
   drawMixOnsets(ctx, analysis, pxPerSec);
   drawBeats(ctx, analysis, pxPerSec);
 }
