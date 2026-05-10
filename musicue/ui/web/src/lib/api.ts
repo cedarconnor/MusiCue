@@ -1,13 +1,40 @@
 export interface Song {
   id: string;
   title: string;
-  has_analysis: boolean;
-  analysis_ids: string[];
   source_url?: string | null;
+  source_ext: string;
+  duration_sec?: number | null;
+  bpm_global?: number | null;
+  lufs_integrated?: number | null;
+  added_at: string;
+  trashed_at?: string | null;
+  has_thumbnail: boolean;
+  // legacy compatibility for code paths that still expect these
+  has_analysis?: boolean;
+  analysis_ids?: string[];
 }
 
-export async function listSongs(): Promise<Song[]> {
-  const r = await fetch("/api/songs");
+export interface ListSongsParams {
+  q?: string;
+  filters?: string[];
+  sort?: "added_at" | "title" | "duration_sec" | "bpm_global";
+  trashed?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export async function listSongs(
+  params: ListSongsParams = {},
+): Promise<Song[]> {
+  const sp = new URLSearchParams();
+  if (params.q) sp.set("q", params.q);
+  for (const f of params.filters ?? []) sp.append("filter", f);
+  if (params.sort) sp.set("sort", params.sort);
+  if (params.trashed) sp.set("trashed", "1");
+  if (params.limit !== undefined) sp.set("limit", String(params.limit));
+  if (params.offset !== undefined) sp.set("offset", String(params.offset));
+  const qs = sp.toString();
+  const r = await fetch(`/api/songs${qs ? `?${qs}` : ""}`);
   if (!r.ok) throw new Error(`listSongs: ${r.status}`);
   return (await r.json()).songs;
 }
@@ -40,16 +67,33 @@ export async function analyzeUrl(url: string): Promise<{ job_id: string }> {
   return r.json();
 }
 
+export interface OnsetItem {
+  t: number;
+  strength?: number;
+  drum_class?: string | null;
+  drum_class_conf?: number | null;
+  labels?: string[];
+}
+
+export interface PhraseItem {
+  t_start: number;
+  t_end: number;
+  note_count?: number;
+  pitch_low?: number;
+  pitch_peak?: number;
+  pitch_contour?: number[];
+  labels?: string[];
+}
+
 export interface AnalysisJSON {
+  schema_version?: string;
   tempo?: { bpm_global?: number; bpm?: number };
   source?: { duration_sec?: number; sample_rate?: number };
   lufs_integrated?: number | null;
   beats?: Array<{ t: number; downbeat: boolean }>;
   sections?: Array<{ start: number; end: number; label: string }>;
-  onsets?: Record<
-    string,
-    Array<{ t: number; strength?: number; drum_class?: string }>
-  >;
+  onsets?: Record<string, OnsetItem[]>;
+  phrases?: Record<string, PhraseItem[]>;
   curves?: Record<string, { hop_sec: number; values: number[] }>;
 }
 
@@ -101,9 +145,6 @@ export async function ensureClick(
 }
 
 export function clickWavUrl(songId: string, analysisId: string): string {
-  // Cache-bust: regenerated WAVs share the same URL but have different
-  // content. Append a timestamp so the browser refetches each time the
-  // user toggles the click track on.
   return `/api/songs/${songId}/analyses/${analysisId}/click.wav?t=${Date.now()}`;
 }
 
@@ -117,4 +158,69 @@ export function stemAudioUrl(
   stem: string,
 ): string {
   return `/api/songs/${songId}/analyses/${analysisId}/stems/${stem}`;
+}
+
+export function thumbnailUrl(songId: string): string {
+  return `/api/songs/${songId}/thumbnail`;
+}
+
+export async function trashSong(songId: string): Promise<void> {
+  const r = await fetch(`/api/songs/${songId}/trash`, { method: "POST" });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new Error(d.detail || `trashSong: ${r.status}`);
+  }
+}
+
+export async function untrashSong(songId: string): Promise<void> {
+  const r = await fetch(`/api/songs/${songId}/untrash`, { method: "POST" });
+  if (!r.ok) throw new Error(`untrashSong: ${r.status}`);
+}
+
+export async function deleteSong(songId: string): Promise<void> {
+  const r = await fetch(`/api/songs/${songId}`, { method: "DELETE" });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new Error(d.detail || `deleteSong: ${r.status}`);
+  }
+}
+
+export async function emptyTrash(): Promise<{
+  deleted: number;
+  skipped: string[];
+}> {
+  const r = await fetch("/api/library/empty-trash", { method: "POST" });
+  if (!r.ok) throw new Error(`emptyTrash: ${r.status}`);
+  return r.json();
+}
+
+export interface LoopState {
+  loop_in: number;
+  loop_out: number;
+  enabled: boolean;
+  updated_at?: string;
+}
+
+export async function getLoop(
+  songId: string,
+  analysisId: string,
+): Promise<LoopState | null> {
+  const r = await fetch(`/api/songs/${songId}/analyses/${analysisId}/loop`);
+  if (r.status === 204) return null;
+  if (!r.ok) throw new Error(`getLoop: ${r.status}`);
+  return r.json();
+}
+
+export async function putLoop(
+  songId: string,
+  analysisId: string,
+  loop: Omit<LoopState, "updated_at">,
+): Promise<LoopState> {
+  const r = await fetch(`/api/songs/${songId}/analyses/${analysisId}/loop`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(loop),
+  });
+  if (!r.ok) throw new Error(`putLoop: ${r.status}`);
+  return r.json();
 }

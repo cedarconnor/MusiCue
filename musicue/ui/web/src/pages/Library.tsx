@@ -211,7 +211,7 @@ export default function Library() {
             >
               <span>
                 {s.has_analysis ? (
-                  <Link to={`/editor/${s.id}/${s.analysis_ids[0]}`}>
+                  <Link to={`/editor/${s.id}/${(s.analysis_ids ?? [])[0]}`}>
                     {s.title}
                   </Link>
                 ) : (
@@ -222,7 +222,7 @@ export default function Library() {
                 {isAnalyzing
                   ? `Analyzing… ${pct ?? "queued"}`
                   : s.has_analysis
-                  ? `${s.analysis_ids.length} analysis`
+                  ? `${(s.analysis_ids ?? []).length} analysis`
                   : "no analysis"}
               </span>
             </li>
