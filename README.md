@@ -116,7 +116,7 @@ ruff check .
 pyright
 ```
 
-### Web UI (v0.1c, dev mode)
+### Web UI (v0.1d, dev mode)
 
 A local web app for browsing your library and inspecting analyses. The whole
 thing runs on your own machine — there is no cloud component.
@@ -141,7 +141,7 @@ Open <http://localhost:8765/>. Default bind is localhost; do NOT bind to
 arbitrary URLs (with private/loopback IPs blocked) and would benefit from
 auth before being exposed.
 
-Test count at HEAD: **298 unit tests passing** across 5 backend milestones plus the v0.1a/b/c web UI work.
+Test count at HEAD: **307 unit tests passing** across 5 backend milestones plus the v0.1a–d web UI work.
 
 #### What you'll see
 
@@ -240,6 +240,40 @@ The **Click track: off / on** toggle in the transport plays a metronome lined up
 ##### Zoom
 
 The **Zoom slider** above the transport stretches the timeline horizontally up to 20×, so you can scrub down to individual onset markers, examine ramp shapes in detail, or read every section label without overlap.
+
+##### Export *(v0.1d)*
+
+![Export modal — After Effects format with FPS field](docs/screenshots/export_modal_aftereffects.png)
+
+The **Export ▶** button on the right of the transport row opens a dialog that turns the current song into a file your downstream tool can read. There are two top-level choices:
+
+- **Format** — the file type. Nine options today:
+  - **CSV** / **JSON** — simple tabular or structured data, good for spreadsheets, Python, or custom tooling.
+  - **MIDI** — a standard `.mid` file. Drum hits become General-MIDI drum notes; continuous curves become CC74. Imports into any DAW.
+  - **After Effects** — an ExtendScript `.jsx` you run inside AE; it builds null layers with Slider Control keyframes and drops comp markers at every section boundary.
+  - **TouchDesigner** — a CHOP-friendly CSV plus a separate events CSV for Table DAT triggers.
+  - **OSC** — a JSON bundle plus a tiny Python playback script; broadcasts events live to whatever address you pick.
+  - **Houdini** — CHOP-friendly CSV with a metadata header, a `time` channel, and one channel per track.
+  - **disguise** — a cue list CSV in `HH:MM:SS:FF` timecode at your chosen frame rate.
+  - **Unreal Sequencer** — JSON with event tracks and float curves with interp keys; drag into a Sequencer asset.
+
+- **Grammar** — *what* events get emitted. The four built-in presets are tuned for different creative jobs:
+  - **Concert visuals** — downbeat pulse, per-class drum tracks, drop labels, vocal phrase envelopes, section ramps, energy curve. Good default for music-reactive video.
+  - **Character animation** — vocal/melody phrase envelopes, downbeat accents, per-stem energy. Good for lipsync-adjacent or full-body character work.
+  - **Lighting** — fast-attack drum tracks, hihat with rarity decay, build-up cues, intensity curve. Tuned for stage-lighting timing.
+  - **Camera edit** — section cuts as primary, downbeat bar markers, impact hits, slow energy curve. Tuned for video editing markers and cut points.
+
+The dialog adapts to the format you pick:
+
+- **After Effects** and **disguise** ask for **FPS** (so timecode and keyframes line up with your project rate).
+- **MIDI** asks for **ticks/beat** (480, 960, or 1920 — higher means tighter timing resolution).
+- **OSC** asks for **host** and **port** so the bundle is pre-addressed at your show network.
+
+![Export modal — OSC format with host + port fields](docs/screenshots/export_modal_osc.png)
+
+The file streams straight to your browser as a normal download — nothing is left on disk on the server side.
+
+> Audio export (reference mix, individual stems) and video export (timeline render) are planned for **v0.1e**. The CLI commands (`musicue export`, `musicue render`, `scripts/make_qc_video.py`) cover those today.
 
 ## Operational scripts
 
