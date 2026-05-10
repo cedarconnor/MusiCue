@@ -30,7 +30,10 @@ def _seconds_to_timecode(t: float, fps: float = 25.0) -> str:
     return f"{hh:02d}:{mm:02d}:{ss:02d}:{ff:02d}"
 
 
-def export(cuesheet: CueSheet, out_path: Path, fps: float = 25.0, **opts) -> None:
+def export(cuesheet: CueSheet, out_path: Path, fps: float | None = None, **opts) -> None:
+    # Prefer the cuesheet's own fps; explicit fps arg overrides.
+    if fps is None:
+        fps = float(cuesheet.fps) if cuesheet.fps else 25.0
     rows: list[dict] = []
 
     for track in cuesheet.tracks:

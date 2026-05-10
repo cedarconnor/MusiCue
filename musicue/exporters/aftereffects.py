@@ -75,7 +75,10 @@ def _var_name(track_name: str) -> str:
     return v
 
 
-def export(cuesheet: CueSheet, out_path: Path, fps: float = 24.0, **opts) -> None:
+def export(cuesheet: CueSheet, out_path: Path, fps: float | None = None, **opts) -> None:
+    # Prefer the cuesheet's own fps; explicit fps arg overrides for one-off renders.
+    if fps is None:
+        fps = float(cuesheet.fps) if cuesheet.fps else 24.0
     lines: list[str] = []
     a = lines.append
 

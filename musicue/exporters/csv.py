@@ -36,7 +36,11 @@ def _impulse_col(track: CueTrack, times: np.ndarray) -> list[float]:
 
 def export(cuesheet: CueSheet, out_path: Path, **opts) -> None:
     times = _time_grid(cuesheet)
-    columns: dict[str, list[float]] = {"time_sec": list(times)}
+    fps = float(cuesheet.fps) if cuesheet.fps else 24.0
+    columns: dict[str, list[float]] = {
+        "time_sec": list(times),
+        "frame_number": [int(round(t * fps)) for t in times],
+    }
     for track in cuesheet.tracks:
         if track.type == "continuous":
             columns[track.name] = _continuous_col(track, times)
