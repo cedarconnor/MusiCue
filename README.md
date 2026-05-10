@@ -116,7 +116,7 @@ ruff check .
 pyright
 ```
 
-### Web UI (v0.1d, dev mode)
+### Web UI (v0.2a, dev mode)
 
 A local web app for browsing your library and inspecting analyses. The whole
 thing runs on your own machine — there is no cloud component.
@@ -141,7 +141,7 @@ Open <http://localhost:8765/>. Default bind is localhost; do NOT bind to
 arbitrary URLs (with private/loopback IPs blocked) and would benefit from
 auth before being exposed.
 
-Test count at HEAD: **307 unit tests passing** across 5 backend milestones plus the v0.1a–d web UI work.
+Test count at HEAD: **340 unit tests passing** across 5 backend milestones plus the v0.1a–d / v0.2a web UI work.
 
 #### What you'll see
 
@@ -273,7 +273,17 @@ The dialog adapts to the format you pick:
 
 The file streams straight to your browser as a normal download — nothing is left on disk on the server side.
 
-> Audio export (reference mix, individual stems) and video export (timeline render) are planned for **v0.1e**. The CLI commands (`musicue export`, `musicue render`, `scripts/make_qc_video.py`) cover those today.
+##### Frame rate / timecode *(v0.2a)*
+
+Every export carries a **frame rate** that the cuesheet uses for animation timing — pick from the dropdown at the bottom of the dialog (23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60). At 29.97 or 59.94 a **drop-frame** checkbox appears for broadcast/SMPTE workflows that need their timecode to track real-time clocks accurately.
+
+![Export modal — FPS picker with drop-frame toggle at 29.97](docs/screenshots/export_modal_fps_2997_dropframe.png)
+
+The chosen FPS is recorded on the cuesheet itself and on every event in `analysis.json` and `cuesheet.json`. CSV exports gain a `frame_number` column; After Effects, disguise, TouchDesigner, and Houdini exports write their timecodes at this rate. So if you change FPS in the dialog, every downstream tool sees the right frame numbers without any per-tool conversion.
+
+CLI users get the same thing via `--fps` and `--drop-frame` flags on `musicue analyze`, `musicue compile`, and `musicue render`. Old `analysis.json` files (schema 1.1) keep working — they just lack the frame fields until you re-analyze.
+
+> Audio export (reference mix, individual stems) and video export (timeline render) are planned for **v0.2d**. The CLI commands (`musicue export`, `musicue render`, `scripts/make_qc_video.py`) cover those today.
 
 ## Operational scripts
 
