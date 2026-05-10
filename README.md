@@ -116,7 +116,7 @@ ruff check .
 pyright
 ```
 
-### Web UI (v0.1a, dev mode)
+### Web UI (v0.1c, dev mode)
 
 The frontend bundle isn't tracked in git (`musicue/ui/static/` is gitignored)
 and there's no `pip install` build hook yet -- packaging the wheel with the
@@ -130,15 +130,20 @@ npm run build      # writes the bundle to ../static/
 
 # Then back at the repo root, run the server:
 cd ../../..
-python -m uvicorn musicue.ui.server:create_app --factory
+python -m musicue ui --no-open
 ```
 
-Open <http://127.0.0.1:8000/library>. Default bind is localhost; do NOT bind
-to `0.0.0.0` over an untrusted network -- the URL-ingest endpoint can fetch
+Open <http://localhost:8765/>. Default bind is localhost; do NOT bind to
+`0.0.0.0` over an untrusted network -- the URL-ingest endpoint can fetch
 arbitrary URLs (with private/loopback IPs blocked) and would benefit from
 auth before being exposed.
 
-Test count at HEAD: **190 unit tests passing** across 5 milestones (M0 walking skeleton, M1 full analysis, M2 compiler+grammars+drum CNN, M3 exporters round 1, M4 exporters round 2 + batch + scripts).
+Editor features by milestone:
+- **v0.1a** — mix + 4-stem WaveSurfer lanes, section/onset/beat overlay, transport, zoom.
+- **v0.1b** — per-stem onset markers + phrase blocks, label chip strip, server-canonical loop persistence with localStorage cache.
+- **v0.1c** — continuous-curves panel (LUFS, spectral centroid/flux, stereo width/pan) with autoscale toggle and playhead sync, per-stem RMS tint on each lane, section-transition ramp shapes with hover tooltips, tempo range in the header when `bpm_curve` varies.
+
+Test count at HEAD: **298 unit tests passing** across 5 backend milestones plus the v0.1a/b/c web UI work.
 
 ## Operational scripts
 
