@@ -11,9 +11,24 @@ from musicue.ui.storage import UIStorage
 
 
 def create_app(storage_root: Path | None = None) -> FastAPI:
-    app = FastAPI(title="MusiCue Web UI", version="0.1.0-mvp")
-    app.state.storage = UIStorage(storage_root or (Path.home() / ".musicue"))
+    import sqlite3
+
+    from musicue.index import index as indexer
+    from musicue.index import schema as index_schema
+
+    app = FastAPI(title="MusiCue Web UI", version="0.1b")
+    root = Path(storage_root or (Path.home() / ".musicue"))
+    root.mkdir(parents=True, exist_ok=True)
+    app.state.storage = UIStorage(root)
     app.state.jobs = JobManager()
+
+    db = sqlite3.connect(root / "index.db", check_same_thread=False)
+    db.execute("PRAGMA foreign_keys = ON")
+    db.row_factory = sqlite3.Row
+    index_schema.create_all(db)
+    indexer.ensure_current(db, root)
+    app.state.index_db = db
+    app.state.storage_root = root
 
     from musicue.ui.runner import AnalyzePool
 
