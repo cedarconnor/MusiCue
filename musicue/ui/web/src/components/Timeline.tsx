@@ -119,9 +119,49 @@ export default function Timeline({
       });
       mixRef.current = mix;
 
-      // Slave stem lanes: same time domain, no audio playback driven by
-      // them. Audio audibility is controlled by mute logic below; visual
-      // playhead syncs to the mix's audioprocess.
+      // Bind the master events synchronously, BEFORE any awaits, so we
+      // don't miss the "ready" fire on a fast-decoding mix. (Stems load
+      // in parallel below; if we awaited them first, the mix could be
+      // ready-and-fired before the listener attached, leaving onReady
+      // never called -- which the Transport's play button depends on.)
+      let mixReadyFired = false;
+      mix.on("ready", () => {
+        mixReadyFired = true;
+        applyZoom(1);
+        onReady?.(mix);
+      });
+
+      // Slave-sync handlers. Stems may not exist yet when these fire on
+      // the very first play; that's fine -- the optional chaining skips
+      // them and the user just hears the mix until the stems show up.
+      const syncSlaves = () => {
+        const t = mix.getCurrentTime();
+        for (const stem of STEMS) {
+          const ws = stemsRef.current[stem];
+          if (!ws) continue;
+          if (Math.abs(ws.getCurrentTime() - t) > 0.04) ws.setTime(t);
+        }
+      };
+      const syncOnPlay = () => {
+        for (const stem of STEMS) {
+          // play() returns a Promise; swallow rejections so a stem that
+          // hasn't decoded yet doesn't surface as an unhandled rejection.
+          stemsRef.current[stem]?.play()?.catch?.(() => {});
+        }
+      };
+      const syncOnPause = () => {
+        for (const stem of STEMS) stemsRef.current[stem]?.pause();
+      };
+      const syncOnSeek = () => {
+        const t = mix.getCurrentTime();
+        for (const stem of STEMS) stemsRef.current[stem]?.setTime(t);
+      };
+      mix.on("audioprocess", syncSlaves);
+      mix.on("play", syncOnPlay);
+      mix.on("pause", syncOnPause);
+      mix.on("seeking", syncOnSeek);
+
+      // Stems load in the background; failures don't block the mix.
       await Promise.all(
         STEMS.map(async (stem) => {
           const host = stemHostRefs.current[stem];
@@ -141,44 +181,22 @@ export default function Timeline({
             peaks,
             url: stemAudioUrl(songId, analysisId, stem),
           });
-          // Mute on creation: stems are visualisation slaves; only the mix
-          // is audible by default. A solo toggle below flips the audibility.
-          // Without this, all four stems play unmuted on top of the mix and
-          // the user hears every part doubled.
+          // Mute on creation: stems are visualisation slaves; only the
+          // mix is audible by default. Without this, all four stems play
+          // on top of the mix and every part is doubled.
           ws.setMuted(true);
           stemsRef.current[stem] = ws;
         }),
       );
 
-      const syncSlaves = () => {
-        const t = mix.getCurrentTime();
-        for (const stem of STEMS) {
-          const ws = stemsRef.current[stem];
-          if (!ws) continue;
-          // Drift-correct only on visible drift; setTime on every frame
-          // would be wasteful.
-          if (Math.abs(ws.getCurrentTime() - t) > 0.04) ws.setTime(t);
-        }
-      };
-      const syncOnPlay = () => {
-        for (const stem of STEMS) stemsRef.current[stem]?.play();
-      };
-      const syncOnPause = () => {
-        for (const stem of STEMS) stemsRef.current[stem]?.pause();
-      };
-      const syncOnSeek = () => {
-        const t = mix.getCurrentTime();
-        for (const stem of STEMS) stemsRef.current[stem]?.setTime(t);
-      };
-      mix.on("audioprocess", syncSlaves);
-      mix.on("play", syncOnPlay);
-      mix.on("pause", syncOnPause);
-      mix.on("seeking", syncOnSeek);
-
-      mix.on("ready", () => {
+      // Belt-and-suspenders: if the mix already fired "ready" before our
+      // listener attached (only possible if WaveSurfer's listener semantics
+      // change in a future version), call onReady manually. Cheap to check.
+      if (!mixReadyFired && mix.getDuration()) {
+        mixReadyFired = true;
         applyZoom(1);
         onReady?.(mix);
-      });
+      }
     })();
 
     const onResize = () => applyZoom(zoom);
