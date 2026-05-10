@@ -20,6 +20,7 @@ export interface ExportRequest {
   grammar: ExportGrammar;
   filename?: string;
   fps?: number;
+  drop_frame?: boolean;
   ticks_per_beat?: number;
   osc_host?: string;
   osc_port?: number;

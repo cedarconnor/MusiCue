@@ -25,15 +25,21 @@ def analyze(
     song: Path = typer.Argument(..., help="Input audio file (.wav, .flac, .mp3)"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
     out: Optional[Path] = typer.Option(None, "--out", "-o", help="Output dir for analysis.json"),
+    fps: float = typer.Option(24.0, "--fps", help="Frame rate for frame/timecode stamping."),
+    drop_frame: bool = typer.Option(False, "--drop-frame", help="Use SMPTE drop-frame timecode (29.97/59.94 only)."),
 ) -> None:
     """Run Layer 1 analysis - write analysis.json."""
     from musicue.analysis.pipeline import run_analysis
     from musicue.config import MusiCueConfig
+    from musicue.frame_population import populate_analysis_frames
 
     cfg = MusiCueConfig.from_yaml(config) if config else MusiCueConfig()
     if out:
         cfg.runs_dir = out
     result = run_analysis(song, cfg)
+    # Re-stamp at the user-requested fps (run_analysis defaults to 24.0).
+    if fps != 24.0 or drop_frame:
+        result = populate_analysis_frames(result, fps=fps, drop_frame=drop_frame)
     out_path = (out or cfg.runs_dir / song.stem) / "analysis.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(result.model_dump_json(indent=2))
@@ -45,13 +51,17 @@ def compile(
     analysis_path: Path = typer.Argument(..., help="Path to analysis.json"),
     grammar: str = typer.Option("concert_visuals", "--grammar", "-g"),
     out: Optional[Path] = typer.Option(None, "--out", "-o"),
+    fps: Optional[float] = typer.Option(None, "--fps", help="Override fps for frame/timecode stamping."),
+    drop_frame: Optional[bool] = typer.Option(None, "--drop-frame", help="Override drop-frame setting."),
 ) -> None:
     """Run Layer 2 compiler: analysis.json - cuesheet.json."""
     from musicue.compile.compiler import compile_analysis
     from musicue.schemas import AnalysisResult
 
     analysis = AnalysisResult.model_validate_json(analysis_path.read_text())
-    cuesheet = compile_analysis(analysis, grammar=grammar)
+    cuesheet = compile_analysis(
+        analysis, grammar=grammar, fps=fps, drop_frame=drop_frame
+    )
     out_path = out or analysis_path.parent / "cuesheet.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(cuesheet.model_dump_json(indent=2))
@@ -94,6 +104,8 @@ def render(
     workers: int = typer.Option(
         4, "--workers", "-w", help="Number of parallel workers for batch mode"
     ),
+    fps: float = typer.Option(24.0, "--fps", help="Frame rate for frame/timecode stamping."),
+    drop_frame: bool = typer.Option(False, "--drop-frame", help="Use SMPTE drop-frame timecode (29.97/59.94 only)."),
 ) -> None:
     """Convenience: analyze -> compile -> export in one shot. Use --batch to process a directory."""
     import importlib
@@ -112,7 +124,9 @@ def render(
 
     def _process_one(audio_path: Path) -> Path:
         analysis = run_analysis(audio_path, cfg)
-        cuesheet = compile_analysis(analysis, grammar=grammar)
+        cuesheet = compile_analysis(
+            analysis, grammar=grammar, fps=fps, drop_frame=drop_frame
+        )
         if batch and out:
             out_file = out / (audio_path.stem + suffix)
         elif out:

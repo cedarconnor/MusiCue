@@ -24,10 +24,15 @@ const GRAMMARS: Array<{ key: ExportGrammar; label: string }> = [
   { key: "camera_edit", label: "Camera edit" },
 ];
 
-const FPS_NEEDED: ReadonlySet<ExportFormat> = new Set([
-  "after_effects",
-  "disguise",
-]);
+// FPS now applies to every export (it's the cuesheet animation rate). The
+// drop-frame toggle is meaningful only at 29.97 / 59.94.
+const DROP_FRAME_FPS_TOLERANCE = 0.05;
+function dropFrameSupported(fps: number): boolean {
+  return (
+    Math.abs(fps - 29.97) < DROP_FRAME_FPS_TOLERANCE ||
+    Math.abs(fps - 59.94) < DROP_FRAME_FPS_TOLERANCE
+  );
+}
 
 interface Props {
   open: boolean;
@@ -48,6 +53,7 @@ export default function ExportModal({
   const [grammar, setGrammar] = useState<ExportGrammar>("concert_visuals");
   const [filename, setFilename] = useState<string>(songTitle);
   const [fps, setFps] = useState<number>(24);
+  const [dropFrame, setDropFrame] = useState<boolean>(false);
   const [ticks, setTicks] = useState<number>(480);
   const [oscHost, setOscHost] = useState<string>("127.0.0.1");
   const [oscPort, setOscPort] = useState<number>(9000);
@@ -64,7 +70,8 @@ export default function ExportModal({
         format,
         grammar,
         filename,
-        fps: FPS_NEEDED.has(format) ? fps : undefined,
+        fps,
+        drop_frame: dropFrameSupported(fps) && dropFrame,
         ticks_per_beat: format === "midi" ? ticks : undefined,
         osc_host: format === "osc" ? oscHost : undefined,
         osc_port: format === "osc" ? oscPort : undefined,
@@ -117,20 +124,42 @@ export default function ExportModal({
             style={inputStyle}
           />
 
-          {FPS_NEEDED.has(format) && (
-            <>
-              <label style={labelStyle}>FPS</label>
-              <input
-                type="number"
-                min={1}
-                max={120}
-                step={1}
-                value={fps}
-                onChange={(e) => setFps(parseFloat(e.target.value) || 24)}
-                style={inputStyle}
-              />
-            </>
-          )}
+          <label style={labelStyle}>FPS</label>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <select
+              value={String(fps)}
+              onChange={(e) => setFps(parseFloat(e.target.value))}
+              style={{ ...inputStyle, flex: "0 0 auto" }}
+            >
+              <option value="23.976">23.976</option>
+              <option value="24">24</option>
+              <option value="25">25</option>
+              <option value="29.97">29.97</option>
+              <option value="30">30</option>
+              <option value="48">48</option>
+              <option value="50">50</option>
+              <option value="59.94">59.94</option>
+              <option value="60">60</option>
+            </select>
+            {dropFrameSupported(fps) && (
+              <label
+                style={{
+                  ...labelStyle,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={dropFrame}
+                  onChange={(e) => setDropFrame(e.target.checked)}
+                />
+                drop-frame
+              </label>
+            )}
+          </div>
 
           {format === "midi" && (
             <>

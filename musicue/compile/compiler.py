@@ -323,6 +323,8 @@ def compile_analysis(
     analysis: AnalysisResult,
     grammar: str | Grammar = "concert_visuals",
     grammars_dir: Path | None = None,
+    fps: float | None = None,
+    drop_frame: bool | None = None,
 ) -> CueSheet:
     """Compile an :class:`AnalysisResult` into a :class:`CueSheet` per ``grammar``.
 
@@ -360,10 +362,28 @@ def compile_analysis(
         if track is not None:
             tracks.append(track)
 
-    return CueSheet(
+    # Resolve fps/drop_frame: explicit args win, then analysis_config, then default.
+    cs_fps = (
+        fps
+        if fps is not None
+        else analysis.analysis_config.fps
+    )
+    cs_drop = (
+        drop_frame
+        if drop_frame is not None
+        else analysis.analysis_config.drop_frame
+    )
+
+    sheet = CueSheet(
         source_sha256=analysis.source.sha256,
         grammar=grammar.name,
         duration_sec=analysis.source.duration_sec,
+        fps=cs_fps,
+        drop_frame=cs_drop,
         tempo_map=analysis.tempo.bpm_curve if analysis.tempo else [],
         tracks=tracks,
     )
+    # Stamp frame/timecode on every event using the cuesheet's fps.
+    from musicue.frame_population import populate_cuesheet_frames
+
+    return populate_cuesheet_frames(sheet, cs_fps, cs_drop)

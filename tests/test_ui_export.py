@@ -158,6 +158,24 @@ def test_export_filename_sanitized(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+def test_export_csv_includes_frame_number_column(tmp_path):
+    _plant_analysis(tmp_path)
+    client = TestClient(create_app(storage_root=tmp_path))
+    r = client.post(
+        f"/api/songs/{SONG_ID}/analyses/{ANALYSIS_ID}/export",
+        json={"format": "csv", "grammar": "concert_visuals", "fps": 30},
+    )
+    assert r.status_code == 200
+    body = r.content.decode("utf-8")
+    header = body.splitlines()[0]
+    assert "frame_number" in header
+    # First data row's frame_number for time 0 must be 0.
+    first_data = body.splitlines()[1].split(",")
+    cols = header.split(",")
+    frame_idx = cols.index("frame_number")
+    assert first_data[frame_idx] == "0"
+
+
 def test_export_unknown_format(tmp_path):
     _plant_analysis(tmp_path)
     client = TestClient(create_app(storage_root=tmp_path))
