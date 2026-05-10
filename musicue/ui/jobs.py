@@ -109,13 +109,22 @@ class JobManager:
             await q.put(event)
 
     async def complete(self, job_id: str, result: dict) -> None:
-        self._jobs[job_id].status = JobStatus.COMPLETE
-        self._jobs[job_id].result = result
+        job = self._jobs[job_id]
+        # Don't overwrite a terminal state. If the job was already cancelled,
+        # any late "complete" from the still-running worker is dropped on
+        # the floor.
+        if job.status in (JobStatus.CANCELLED, JobStatus.FAILED, JobStatus.COMPLETE):
+            return
+        job.status = JobStatus.COMPLETE
+        job.result = result
         await self.publish(job_id, {"type": "complete", "result": result})
 
     async def fail(self, job_id: str, error: str) -> None:
-        self._jobs[job_id].status = JobStatus.FAILED
-        self._jobs[job_id].error = error
+        job = self._jobs[job_id]
+        if job.status in (JobStatus.CANCELLED, JobStatus.FAILED, JobStatus.COMPLETE):
+            return
+        job.status = JobStatus.FAILED
+        job.error = error
         await self.publish(job_id, {"type": "error", "error": error})
 
     def request_cancel(self, job_id: str) -> bool:
