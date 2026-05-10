@@ -270,6 +270,15 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
         lufs_integrated=compute_integrated_lufs(audio_path),
     )
 
+    # Populate frame/timecode on every event using the configured fps.
+    from musicue.frame_population import populate_analysis_frames
+
+    result = populate_analysis_frames(
+        result,
+        fps=result.analysis_config.fps,
+        drop_frame=result.analysis_config.drop_frame,
+    )
+
     out_json = run_dir / "analysis.json"
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.write_text(result.model_dump_json(indent=2))
