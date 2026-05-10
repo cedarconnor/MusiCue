@@ -1,6 +1,20 @@
 import { Link } from "react-router-dom";
 import type { AnalysisJSON, Song } from "../lib/api";
 
+function formatBpm(
+  curve: Array<{ t: number; bpm: number }> | undefined,
+  global: number | undefined,
+): string {
+  if (!global || !Number.isFinite(global)) return "— BPM";
+  const points = curve ?? [];
+  const distinct = new Set(points.map((p) => Math.round(p.bpm)));
+  if (distinct.size <= 1) return `${Math.round(global)} BPM`;
+  const lo = Math.min(...distinct);
+  const hi = Math.max(...distinct);
+  if (hi - lo <= 1) return `${Math.round(global)} BPM`;
+  return `${lo}–${hi} BPM`;
+}
+
 function fmtDuration(sec: number | null | undefined): string {
   if (!sec || !isFinite(sec)) return "";
   const m = Math.floor(sec / 60);
@@ -28,9 +42,10 @@ export default function MetadataCard({
   song: Song | null;
   analysis: AnalysisJSON;
 }) {
-  const bpm =
-    analysis.tempo?.bpm_global ?? analysis.tempo?.bpm ?? null;
-  const bpmText = bpm ? `${Math.round(bpm)} BPM` : "";
+  const bpmText = formatBpm(
+    analysis.tempo?.bpm_curve,
+    analysis.tempo?.bpm_global ?? analysis.tempo?.bpm,
+  );
   const lufs = fmtLUFS(analysis.lufs_integrated);
   const dur = fmtDuration(analysis.source?.duration_sec);
   const url = song?.source_url ?? null;
