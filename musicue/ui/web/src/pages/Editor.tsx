@@ -7,6 +7,7 @@ import Timeline from "../components/Timeline";
 import Transport from "../components/Transport";
 import MetadataCard from "../components/MetadataCard";
 import CurvesPanel from "../components/CurvesPanel";
+import ExportModal from "../components/ExportModal";
 import LabelChipStrip, {
   SelectedAnnotation,
 } from "../components/LabelChipStrip";
@@ -43,6 +44,7 @@ export default function Editor() {
     }
   });
   const [cursorTime, setCursorTime] = useState<number>(0);
+  const [exportOpen, setExportOpen] = useState<boolean>(false);
   const [layout, setLayout] = useState<{ duration: number; pxPerSec: number }>({
     duration: 0,
     pxPerSec: 1,
@@ -121,7 +123,33 @@ export default function Editor() {
         onCursorTime={setCursorTime}
         onLayout={setLayout}
       />
-      <Transport ws={ws} songId={songId} analysisId={analysisId} />
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <Transport ws={ws} songId={songId} analysisId={analysisId} />
+        </div>
+        <button
+          onClick={() => setExportOpen(true)}
+          style={{
+            background: "#1a1a1a",
+            color: "#bbb",
+            border: "1px solid #333",
+            padding: "6px 14px",
+            borderRadius: 4,
+            cursor: "pointer",
+            fontSize: 13,
+            marginRight: 16,
+          }}
+        >
+          Export ▶
+        </button>
+      </div>
+      <ExportModal
+        open={exportOpen}
+        songId={songId}
+        analysisId={analysisId}
+        songTitle={song?.title ?? "cuesheet"}
+        onClose={() => setExportOpen(false)}
+      />
       <CurvesPanel
         analysis={analysis}
         songId={songId}
