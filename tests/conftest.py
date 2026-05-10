@@ -37,6 +37,18 @@ def synthetic_wav(tmp_path_factory) -> Path:
 
 
 @pytest.fixture()
+def make_app():
+    """Create a v0.1b FastAPI app rooted at the given storage path."""
+
+    def _make(root: Path):
+        from musicue.ui.server import create_app
+
+        return create_app(storage_root=root)
+
+    return _make
+
+
+@pytest.fixture()
 def full_cuesheet() -> CueSheet:
     """CueSheet exercising all five track types - used by exporter tests."""
     kick_env = {"a": 0.005, "d": 0.12, "s": 0.0, "r": 0.0}

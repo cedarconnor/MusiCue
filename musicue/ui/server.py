@@ -46,11 +46,13 @@ def create_app(storage_root: Path | None = None) -> FastAPI:
     from musicue.ui.routes import analyses as analyses_routes
     from musicue.ui.routes import click as click_routes
     from musicue.ui.routes import jobs as jobs_routes
+    from musicue.ui.routes import library as library_routes
     from musicue.ui.routes import songs as songs_routes
     app.include_router(songs_routes.router)
     app.include_router(jobs_routes.router)
     app.include_router(analyses_routes.router)
     app.include_router(click_routes.router)
+    app.include_router(library_routes.router)
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
