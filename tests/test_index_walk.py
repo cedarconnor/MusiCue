@@ -124,21 +124,26 @@ def test_ensure_current_rebuilds_on_version_mismatch(tmp_path: Path) -> None:
 
 
 def test_ensure_current_skips_when_already_current(tmp_path: Path) -> None:
+    """When the schema version matches AND the filesystem agrees with the
+    DB row count, ensure_current is a no-op."""
     db = sqlite3.connect(tmp_path / "i.db")
     schema.create_all(db)
     _make_song(tmp_path, "abc", "Hello")
-    indexer.ensure_current(db, tmp_path)
-    # Touch a sentinel - if ensure_current ran a full rebuild, it would
-    # be wiped. We assert it survives.
-    db.execute(
-        "INSERT INTO songs(id, title, source_ext, added_at) "
-        "VALUES ('zzz', 'sentinel', 'wav', '2026-01-01T00:00:00Z')"
-    )
-    db.commit()
-    indexer.ensure_current(db, tmp_path)
-    (has_sentinel,) = db.execute(
-        "SELECT COUNT(*) FROM songs WHERE id='zzz'"
-    ).fetchone()
-    assert has_sentinel == 1, (
-        "ensure_current rebuilt despite matching schema version"
-    )
+    assert indexer.ensure_current(db, tmp_path) is True  # first call rebuilds
+    # Second call with matching state should not rebuild. We can't rely on
+    # a forged sentinel any more (drift detection would catch it), so we
+    # assert the boolean return value.
+    assert indexer.ensure_current(db, tmp_path) is False
+
+
+def test_ensure_current_resyncs_on_filesystem_drift(tmp_path: Path) -> None:
+    """If the filesystem grows new song dirs without going through the
+    write-through API, ensure_current rebuilds on next startup so the
+    Library actually shows them."""
+    db = sqlite3.connect(tmp_path / "i.db")
+    schema.create_all(db)
+    indexer.ensure_current(db, tmp_path)  # empty
+    _make_song(tmp_path, "abc", "Hello")
+    assert indexer.ensure_current(db, tmp_path) is True
+    (n,) = db.execute("SELECT COUNT(*) FROM songs").fetchone()
+    assert n == 1

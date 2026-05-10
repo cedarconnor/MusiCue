@@ -203,13 +203,39 @@ def refresh_song(
     db.commit()
 
 
+def _drift_detected(db: sqlite3.Connection, storage_root: Path) -> bool:
+    """Quick check: does the DB row count match the on-disk song dir count?
+
+    Returns True if they disagree, signalling that an external mutation
+    (manual copy, prior empty-DB run, deleted dir) means a rebuild is
+    needed. Cheap: just counts directory entries vs. one COUNT(*).
+    """
+    songs_dir = storage_root / "songs"
+    on_disk = (
+        sum(1 for d in songs_dir.iterdir() if d.is_dir())
+        if songs_dir.exists()
+        else 0
+    )
+    (in_db,) = db.execute("SELECT COUNT(*) FROM songs").fetchone()
+    return on_disk != in_db
+
+
 def ensure_current(db: sqlite3.Connection, storage_root: Path) -> bool:
-    """Bring the DB to SCHEMA_VERSION. Return True if a rebuild happened."""
+    """Bring the DB to SCHEMA_VERSION + sync with filesystem on drift.
+
+    Returns True if a rebuild happened.
+    """
     (uv,) = db.execute("PRAGMA user_version").fetchone()
-    if uv == schema.SCHEMA_VERSION:
+    needs_schema_bump = uv != schema.SCHEMA_VERSION
+    needs_drift_resync = (
+        not needs_schema_bump
+        and _drift_detected(db, storage_root)
+    )
+    if not (needs_schema_bump or needs_drift_resync):
         return False
-    schema.drop_all(db)
-    schema.create_all(db)
+    if needs_schema_bump:
+        schema.drop_all(db)
+        schema.create_all(db)
     rebuild(db, storage_root)
     return True
 
