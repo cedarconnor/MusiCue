@@ -9,6 +9,11 @@ from pydantic import BaseModel, Field
 
 from musicue.index import index as indexer
 from musicue.index import query as index_query
+from musicue.ui.routes._validators import (
+    validate_analysis_id,
+    validate_song_id,
+    validate_stem,
+)
 
 router = APIRouter(prefix="/api/songs/{song_id}", tags=["analyses"])
 
@@ -21,6 +26,8 @@ class LoopBody(BaseModel):
 
 @router.get("/analyses/{analysis_id}")
 def get_analysis(song_id: str, analysis_id: str, request: Request) -> dict:
+    song_id = validate_song_id(song_id)
+    analysis_id = validate_analysis_id(analysis_id)
     storage = request.app.state.storage
     p = storage.analysis_dir(song_id, analysis_id) / "analysis.json"
     if not p.exists():
@@ -30,6 +37,9 @@ def get_analysis(song_id: str, analysis_id: str, request: Request) -> dict:
 
 @router.get("/analyses/{analysis_id}/peaks/{stem}")
 def get_peaks(song_id: str, analysis_id: str, stem: str, request: Request) -> dict:
+    song_id = validate_song_id(song_id)
+    analysis_id = validate_analysis_id(analysis_id)
+    stem = validate_stem(stem)
     storage = request.app.state.storage
     p = storage.analysis_dir(song_id, analysis_id) / f"peaks.{stem}.json"
     if not p.exists():
@@ -41,6 +51,9 @@ def get_peaks(song_id: str, analysis_id: str, stem: str, request: Request) -> di
 def get_stem(
     song_id: str, analysis_id: str, stem: str, request: Request
 ) -> FileResponse:
+    song_id = validate_song_id(song_id)
+    analysis_id = validate_analysis_id(analysis_id)
+    stem = validate_stem(stem)
     storage = request.app.state.storage
     stems_root = storage.analysis_dir(song_id, analysis_id) / "stems"
     # Demucs writes to <stems_root>/<model_name>/<audio_stem>/<stem>.wav.
@@ -64,6 +77,8 @@ def get_stem(
 
 @router.get("/analyses/{analysis_id}/loop", response_model=None)
 def get_loop(song_id: str, analysis_id: str, request: Request):
+    song_id = validate_song_id(song_id)
+    analysis_id = validate_analysis_id(analysis_id)
     db = request.app.state.index_db
     loop = index_query.get_loop(db, song_id, analysis_id)
     if loop is None:
@@ -75,6 +90,8 @@ def get_loop(song_id: str, analysis_id: str, request: Request):
 def put_loop(
     song_id: str, analysis_id: str, body: LoopBody, request: Request
 ) -> dict:
+    song_id = validate_song_id(song_id)
+    analysis_id = validate_analysis_id(analysis_id)
     if body.loop_out <= body.loop_in:
         raise HTTPException(
             status_code=400, detail="loop_out must exceed loop_in"
@@ -91,6 +108,7 @@ def put_loop(
 
 @router.get("/source")
 def get_source(song_id: str, request: Request) -> FileResponse:
+    song_id = validate_song_id(song_id)
     storage = request.app.state.storage
     rec = storage.get_song(song_id)
     if rec is None:

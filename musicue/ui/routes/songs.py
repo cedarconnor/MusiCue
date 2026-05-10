@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from musicue.index import index as indexer
 from musicue.index import query as index_query
 from musicue.ui import ingest
+from musicue.ui.routes._validators import validate_song_id
 
 router = APIRouter(prefix="/api", tags=["songs"])
 
@@ -74,6 +75,7 @@ def list_songs(
 
 @router.get("/songs/{song_id}")
 def get_song(song_id: str, request: Request) -> dict:
+    song_id = validate_song_id(song_id)
     storage = request.app.state.storage
     rec = storage.get_song(song_id)
     if rec is None:
@@ -117,6 +119,7 @@ async def upload_song(
 
 @router.post("/songs/{song_id}/analyze", status_code=202)
 async def analyze_song(song_id: str, request: Request) -> dict:
+    song_id = validate_song_id(song_id)
     storage = request.app.state.storage
     rec = storage.get_song(song_id)
     if rec is None:
@@ -235,6 +238,7 @@ async def songs_from_url(request: Request, body: FromUrlRequest) -> dict:
 
 @router.get("/songs/{song_id}/thumbnail")
 def get_thumbnail(song_id: str, request: Request) -> FileResponse:
+    song_id = validate_song_id(song_id)
     storage = request.app.state.storage
     p = storage.song_dir(song_id) / "thumbnail.jpg"
     if not p.exists():
@@ -248,6 +252,7 @@ def get_thumbnail(song_id: str, request: Request) -> FileResponse:
 
 @router.post("/songs/{song_id}/trash")
 def trash_song(song_id: str, request: Request) -> dict:
+    song_id = validate_song_id(song_id)
     db = request.app.state.index_db
     root = request.app.state.storage_root
     jobs = request.app.state.jobs
@@ -264,6 +269,7 @@ def trash_song(song_id: str, request: Request) -> dict:
 
 @router.post("/songs/{song_id}/untrash")
 def untrash_song(song_id: str, request: Request) -> dict:
+    song_id = validate_song_id(song_id)
     db = request.app.state.index_db
     root = request.app.state.storage_root
     try:
@@ -275,6 +281,7 @@ def untrash_song(song_id: str, request: Request) -> dict:
 
 @router.delete("/songs/{song_id}")
 def delete_song(song_id: str, request: Request) -> dict:
+    song_id = validate_song_id(song_id)
     db = request.app.state.index_db
     root = request.app.state.storage_root
     try:

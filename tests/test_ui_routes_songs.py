@@ -49,8 +49,15 @@ def test_upload_then_list(tmp_path):
 def test_get_unknown_song_404(tmp_path):
     app = create_app(storage_root=tmp_path)
     client = TestClient(app)
-    r = client.get("/api/songs/deadbeef")
+    r = client.get(f"/api/songs/{'d' * 64}")
     assert r.status_code == 404
+
+
+def test_get_bad_song_id_400(tmp_path):
+    app = create_app(storage_root=tmp_path)
+    client = TestClient(app)
+    r = client.get("/api/songs/deadbeef")
+    assert r.status_code == 400
 
 
 def test_upload_default_title_is_filename_stem(tmp_path):
