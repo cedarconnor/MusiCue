@@ -52,9 +52,11 @@ def _seed_flat_layout(
 def test_get_stem_finds_demucs_nested_layout(
     tmp_path: Path, client: TestClient
 ) -> None:
-    _seed_demucs_layout(tmp_path, "song1", "an1", "drums")
+    sid = "1" * 64
+    aid = "a" * 12
+    _seed_demucs_layout(tmp_path, sid, aid, "drums")
 
-    r = client.get("/api/songs/song1/analyses/an1/stems/drums")
+    r = client.get(f"/api/songs/{sid}/analyses/{aid}/stems/drums")
     assert r.status_code == 200
     assert r.headers["content-type"] == "audio/wav"
     assert "max-age" in r.headers.get("cache-control", "")
@@ -64,14 +66,36 @@ def test_get_stem_finds_demucs_nested_layout(
 def test_get_stem_falls_back_to_flat_layout(
     tmp_path: Path, client: TestClient
 ) -> None:
-    _seed_flat_layout(tmp_path, "song2", "an2", "bass")
+    sid = "2" * 64
+    aid = "b" * 12
+    _seed_flat_layout(tmp_path, sid, aid, "bass")
 
-    r = client.get("/api/songs/song2/analyses/an2/stems/bass")
+    r = client.get(f"/api/songs/{sid}/analyses/{aid}/stems/bass")
     assert r.status_code == 200
     assert r.content.endswith(b"flat")
 
 
 def test_get_stem_404_when_missing(client: TestClient) -> None:
-    r = client.get("/api/songs/nosong/analyses/noan/stems/drums")
+    r = client.get(
+        f"/api/songs/{'9' * 64}/analyses/{'9' * 12}/stems/drums"
+    )
     assert r.status_code == 404
     assert r.json()["detail"] == "stem not generated"
+
+
+def test_get_stem_400_for_unknown_stem(client: TestClient) -> None:
+    r = client.get(
+        f"/api/songs/{'1' * 64}/analyses/{'1' * 12}/stems/banjo"
+    )
+    assert r.status_code == 400
+    assert "unknown stem" in r.json()["detail"]
+
+
+def test_get_stem_400_for_bad_song_id(client: TestClient) -> None:
+    r = client.get("/api/songs/bad-id/analyses/" + "1" * 12 + "/stems/drums")
+    assert r.status_code == 400
+
+
+def test_get_stem_400_for_bad_analysis_id(client: TestClient) -> None:
+    r = client.get(f"/api/songs/{'1' * 64}/analyses/short/stems/drums")
+    assert r.status_code == 400

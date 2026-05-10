@@ -45,6 +45,7 @@ export default function Editor() {
   });
   const [cursorTime, setCursorTime] = useState<number>(0);
   const [exportOpen, setExportOpen] = useState<boolean>(false);
+  const [clickOn, setClickOn] = useState<boolean>(false);
   const [layout, setLayout] = useState<{ duration: number; pxPerSec: number }>({
     duration: 0,
     pxPerSec: 1,
@@ -122,10 +123,17 @@ export default function Editor() {
         showRmsTint={!curvesCollapsed}
         onCursorTime={setCursorTime}
         onLayout={setLayout}
+        clickOn={clickOn}
       />
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ flex: 1 }}>
-          <Transport ws={ws} songId={songId} analysisId={analysisId} />
+          <Transport
+            ws={ws}
+            songId={songId}
+            analysisId={analysisId}
+            clickOn={clickOn}
+            onClickOnChange={setClickOn}
+          />
         </div>
         <button
           onClick={() => setExportOpen(true)}

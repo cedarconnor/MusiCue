@@ -6,6 +6,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
+from musicue.ui.routes._validators import validate_analysis_id, validate_song_id
+
 router = APIRouter(prefix="/api/songs/{song_id}/analyses/{analysis_id}",
                    tags=["click"])
 
@@ -25,6 +27,8 @@ def _real_render(source: Path, analysis_path: Path, out_path: Path) -> None:
 
 @router.post("/click")
 def render_click(song_id: str, analysis_id: str, request: Request) -> dict:
+    song_id = validate_song_id(song_id)
+    analysis_id = validate_analysis_id(analysis_id)
     storage = request.app.state.storage
     rec = storage.get_song(song_id)
     if rec is None:
@@ -41,6 +45,8 @@ def render_click(song_id: str, analysis_id: str, request: Request) -> dict:
 
 @router.get("/click.wav")
 def get_click_wav(song_id: str, analysis_id: str, request: Request) -> FileResponse:
+    song_id = validate_song_id(song_id)
+    analysis_id = validate_analysis_id(analysis_id)
     storage = request.app.state.storage
     out_path = storage.analysis_dir(song_id, analysis_id) / "click.wav"
     if not out_path.exists():

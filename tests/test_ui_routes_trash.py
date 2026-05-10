@@ -6,8 +6,11 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+SID = "1" * 64
+AID = "a" * 12
 
-def _seed(tmp_path: Path, sid: str = "s1", aid: str = "a1") -> None:
+
+def _seed(tmp_path: Path, sid: str = SID, aid: str = AID) -> None:
     d = tmp_path / "songs" / sid / "analyses" / aid
     d.mkdir(parents=True)
     (tmp_path / "songs" / sid / "title.txt").write_text("t")
@@ -28,11 +31,11 @@ def test_trash_then_untrash(make_app, tmp_path: Path) -> None:
     app = make_app(tmp_path)
     _refresh_index(app, tmp_path)
     client = TestClient(app)
-    assert client.post("/api/songs/s1/trash").status_code == 200
-    assert (tmp_path / "songs" / "s1" / ".trashed_at").exists()
+    assert client.post(f"/api/songs/{SID}/trash").status_code == 200
+    assert (tmp_path / "songs" / SID / ".trashed_at").exists()
     assert {s["id"] for s in client.get("/api/songs").json()["songs"]} == set()
-    assert client.post("/api/songs/s1/untrash").status_code == 200
-    assert not (tmp_path / "songs" / "s1" / ".trashed_at").exists()
+    assert client.post(f"/api/songs/{SID}/untrash").status_code == 200
+    assert not (tmp_path / "songs" / SID / ".trashed_at").exists()
 
 
 def test_hard_delete_requires_trash(make_app, tmp_path: Path) -> None:
@@ -40,20 +43,20 @@ def test_hard_delete_requires_trash(make_app, tmp_path: Path) -> None:
     app = make_app(tmp_path)
     _refresh_index(app, tmp_path)
     client = TestClient(app)
-    assert client.delete("/api/songs/s1").status_code == 409
-    client.post("/api/songs/s1/trash")
-    assert client.delete("/api/songs/s1").status_code == 200
-    assert not (tmp_path / "songs" / "s1").exists()
+    assert client.delete(f"/api/songs/{SID}").status_code == 409
+    client.post(f"/api/songs/{SID}/trash")
+    assert client.delete(f"/api/songs/{SID}").status_code == 200
+    assert not (tmp_path / "songs" / SID).exists()
 
 
 def test_trash_blocks_when_job_in_flight(make_app, tmp_path: Path) -> None:
     _seed(tmp_path)
     app = make_app(tmp_path)
     _refresh_index(app, tmp_path)
-    job = app.state.jobs.submit(kind="analyze", payload={"song_id": "s1"})
+    job = app.state.jobs.submit(kind="analyze", payload={"song_id": SID})
     client = TestClient(app)
-    r = client.post("/api/songs/s1/trash")
+    r = client.post(f"/api/songs/{SID}/trash")
     assert r.status_code == 409
     assert "job" in r.json()["detail"].lower()
     app.state.jobs.request_cancel(job.id)
-    assert client.post("/api/songs/s1/trash").status_code == 200
+    assert client.post(f"/api/songs/{SID}/trash").status_code == 200

@@ -10,7 +10,7 @@ from musicue.ui.server import create_app
 
 def _seed(tmp_path: Path) -> tuple[str, str]:
     song_id = "a" * 64
-    analysis_id = "fake-analysis"
+    analysis_id = "f" * 12
     base = tmp_path / "songs" / song_id
     (base / "analyses" / analysis_id).mkdir(parents=True)
     (base / "title.txt").write_text("Test", encoding="utf-8")

@@ -24,6 +24,10 @@ interface Props {
   showRmsTint?: boolean;
   onCursorTime?: (t: number) => void;
   onLayout?: (info: { duration: number; pxPerSec: number }) => void;
+  /** When true, the mix lane mutes regardless of solo state — Transport
+   *  drives a separate click <audio> element that mixes the source with
+   *  the click impulses, so playing both would double the source. */
+  clickOn?: boolean;
 }
 
 const STEMS = ["drums", "bass", "vocals", "other"] as const;
@@ -69,6 +73,7 @@ export default function Timeline({
   showRmsTint,
   onCursorTime,
   onLayout,
+  clickOn,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mixHostRef = useRef<HTMLDivElement>(null);
@@ -260,17 +265,22 @@ export default function Timeline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom]);
 
-  // Solo logic: when no solo, mix is audible and stems are muted.
-  // When a stem is soloed, that stem is audible and mix + other stems mute.
+  // Mix + stem mute state. Three inputs feed into a single decision so
+  // Transport's "click is on, mute the mix" intent can't be clobbered by a
+  // solo toggle (and vice versa):
+  //  - clickOn → mix must be muted (click WAV mixes the source itself).
+  //  - solo !== null → mix must be muted, target stem audible.
+  //  - default → mix audible, stems muted.
   useEffect(() => {
     const mix = mixRef.current;
-    if (mix) mix.setMuted(solo !== null);
+    if (mix) mix.setMuted(solo !== null || !!clickOn);
     for (const stem of STEMS) {
       const ws = stemsRef.current[stem];
       if (!ws) continue;
-      ws.setMuted(solo !== stem);
+      // When click is on we mute the stems too — only the click WAV plays.
+      ws.setMuted(solo !== stem || !!clickOn);
     }
-  }, [solo]);
+  }, [solo, clickOn]);
 
   return (
     <div ref={containerRef}>

@@ -14,14 +14,23 @@ from pydantic import BaseModel
 from musicue.index import index as indexer
 from musicue.index import query as index_query
 from musicue.ui import ingest
+from musicue.ui.routes._validators import validate_song_id
 
 router = APIRouter(prefix="/api", tags=["songs"])
 
 
-async def _default_analyze(audio_path: Path, run_dir: Path, publish) -> str:
-    """Real analyze path. Runs the synchronous run_analysis in a thread,
-    publishes coarse progress at stage boundaries, returns the analysis id
-    (the deterministic run_dir name from compute_run_dir)."""
+async def _default_analyze(
+    audio_path: Path,
+    run_dir: Path,
+    publish,
+    *,
+    job_id: str | None = None,
+    pool=None,
+) -> str:
+    """Real analyze path. Submits run_analysis to the cancellable AnalyzePool
+    when one is available; falls back to the default executor (thread) when
+    no pool/job_id was provided — this keeps the test-mode analyze_func
+    overrides simple."""
     from musicue.analysis.pipeline import compute_run_dir, run_analysis
     from musicue.config import MusiCueConfig
 
@@ -30,7 +39,17 @@ async def _default_analyze(audio_path: Path, run_dir: Path, publish) -> str:
 
     await publish({"type": "progress", "fraction": 0.05, "stage": "starting"})
     await publish({"type": "progress", "fraction": 0.1, "stage": "analyzing"})
-    await asyncio.get_running_loop().run_in_executor(None, run_analysis, audio_path, cfg)
+    if pool is not None and job_id is not None:
+        # Route through AnalyzePool.submit so JobManager.cancel can actually
+        # SIGTERM the worker process. asyncio.wrap_future converts the
+        # concurrent.futures.Future the pool returned into an awaitable.
+        fut = pool.submit(job_id, run_analysis, audio_path, cfg)
+        await asyncio.wrap_future(fut)
+    else:
+        # Test / SSE-only path: stay in-process so coroutine fakes work.
+        await asyncio.get_running_loop().run_in_executor(
+            None, run_analysis, audio_path, cfg
+        )
     await publish({"type": "progress", "fraction": 0.95, "stage": "writing"})
     actual_run_dir = compute_run_dir(audio_path, cfg)
     return actual_run_dir.name
@@ -74,6 +93,7 @@ def list_songs(
 
 @router.get("/songs/{song_id}")
 def get_song(song_id: str, request: Request) -> dict:
+    song_id = validate_song_id(song_id)
     storage = request.app.state.storage
     rec = storage.get_song(song_id)
     if rec is None:
@@ -117,6 +137,7 @@ async def upload_song(
 
 @router.post("/songs/{song_id}/analyze", status_code=202)
 async def analyze_song(song_id: str, request: Request) -> dict:
+    song_id = validate_song_id(song_id)
     storage = request.app.state.storage
     rec = storage.get_song(song_id)
     if rec is None:
@@ -129,9 +150,16 @@ async def analyze_song(song_id: str, request: Request) -> dict:
     async def publish(event: dict) -> None:
         await jobs.publish(job.id, event)
 
+    pool = getattr(request.app.state, "pool", None)
+
     async def runner() -> None:
         try:
-            analysis_id = await analyze_func(rec.source_path, run_dir, publish)
+            if analyze_func is _default_analyze:
+                analysis_id = await analyze_func(
+                    rec.source_path, run_dir, publish, job_id=job.id, pool=pool
+                )
+            else:
+                analysis_id = await analyze_func(rec.source_path, run_dir, publish)
             indexer.refresh_song(
                 request.app.state.index_db,
                 request.app.state.storage_root,
@@ -214,9 +242,19 @@ async def songs_from_url(request: Request, body: FromUrlRequest) -> dict:
                 await publish(event)
 
             run_dir = storage.analyses_dir(rec.id) / "pending"
-            analysis_id = await analyze_func(
-                rec.source_path, run_dir, rescaled_publish
-            )
+            pool = getattr(request.app.state, "pool", None)
+            if analyze_func is _default_analyze:
+                analysis_id = await analyze_func(
+                    rec.source_path,
+                    run_dir,
+                    rescaled_publish,
+                    job_id=job.id,
+                    pool=pool,
+                )
+            else:
+                analysis_id = await analyze_func(
+                    rec.source_path, run_dir, rescaled_publish
+                )
             indexer.refresh_song(
                 request.app.state.index_db,
                 request.app.state.storage_root,
@@ -235,6 +273,7 @@ async def songs_from_url(request: Request, body: FromUrlRequest) -> dict:
 
 @router.get("/songs/{song_id}/thumbnail")
 def get_thumbnail(song_id: str, request: Request) -> FileResponse:
+    song_id = validate_song_id(song_id)
     storage = request.app.state.storage
     p = storage.song_dir(song_id) / "thumbnail.jpg"
     if not p.exists():
@@ -248,6 +287,7 @@ def get_thumbnail(song_id: str, request: Request) -> FileResponse:
 
 @router.post("/songs/{song_id}/trash")
 def trash_song(song_id: str, request: Request) -> dict:
+    song_id = validate_song_id(song_id)
     db = request.app.state.index_db
     root = request.app.state.storage_root
     jobs = request.app.state.jobs
@@ -264,6 +304,7 @@ def trash_song(song_id: str, request: Request) -> dict:
 
 @router.post("/songs/{song_id}/untrash")
 def untrash_song(song_id: str, request: Request) -> dict:
+    song_id = validate_song_id(song_id)
     db = request.app.state.index_db
     root = request.app.state.storage_root
     try:
@@ -275,6 +316,7 @@ def untrash_song(song_id: str, request: Request) -> dict:
 
 @router.delete("/songs/{song_id}")
 def delete_song(song_id: str, request: Request) -> dict:
+    song_id = validate_song_id(song_id)
     db = request.app.state.index_db
     root = request.app.state.storage_root
     try:

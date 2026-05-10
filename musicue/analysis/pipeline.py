@@ -89,6 +89,29 @@ def compute_run_dir(audio_path: Path, cfg: MusiCueConfig) -> Path:
     return cfg.runs_dir / cache_key[:12]
 
 
+def _write_run_artifacts(
+    result: AnalysisResult,
+    audio_path: Path,
+    run_dir: Path,
+) -> None:
+    """Materialize the UI-visible artifacts of an analysis into run_dir.
+
+    Called on both the fresh-analysis path and the cache-hit path so that
+    consumers reading from `run_dir/*` always find the same layout
+    regardless of whether the analysis was just computed or pulled from
+    cache. Re-running this is cheap: peaks are derived from existing audio.
+    """
+    from musicue.analysis.peaks import write_peaks
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "analysis.json").write_text(result.model_dump_json(indent=2))
+    write_peaks(audio_path, run_dir / "peaks.mix.json")
+    for stem_name, stem_path_str in result.stems.items():
+        stem_path = Path(stem_path_str)
+        if stem_path.exists():
+            write_peaks(stem_path, run_dir / f"peaks.{stem_name}.json")
+
+
 def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
     audio_path = audio_path.resolve()
     version_dict = _version_dict(cfg)
@@ -97,7 +120,25 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
 
     cached = cache.get(cache_key, "analysis.json")
     if cached is not None:
-        return AnalysisResult.model_validate_json(cached.read_text())
+        result = AnalysisResult.model_validate_json(cached.read_text())
+        # Always materialize the UI artifacts on cache hit. The cache only
+        # holds analysis.json; the run_dir layout (analysis.json + peaks.*)
+        # may have been wiped (manual cleanup, fresh checkout, different
+        # cfg.runs_dir). Re-derive cheaply from the cached result + audio.
+        run_dir = cfg.runs_dir / cache_key[:12]
+        try:
+            _write_run_artifacts(result, audio_path, run_dir)
+        except Exception as exc:
+            # Stems may be missing on disk; fall through to a fresh analysis
+            # rather than returning a partially-materialized result.
+            log.warning(
+                "Cache-hit artifact materialization failed (%s: %s); "
+                "falling back to a fresh analysis.",
+                type(exc).__name__,
+                exc,
+            )
+        else:
+            return result
 
     sha256 = _sha256(audio_path)
     try:
@@ -285,15 +326,6 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
 
     result = populate_beat_pattern_fields(result)
 
-    out_json = run_dir / "analysis.json"
-    out_json.parent.mkdir(parents=True, exist_ok=True)
-    out_json.write_text(result.model_dump_json(indent=2))
-
-    from musicue.analysis.peaks import write_peaks
-
-    write_peaks(audio_path, run_dir / "peaks.mix.json")
-    for stem_name, stem_path in stems.items():
-        write_peaks(stem_path, run_dir / f"peaks.{stem_name}.json")
-
-    cache.put(cache_key, "analysis.json", out_json)
+    _write_run_artifacts(result, audio_path, run_dir)
+    cache.put(cache_key, "analysis.json", run_dir / "analysis.json")
     return result

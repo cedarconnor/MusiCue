@@ -45,8 +45,16 @@ def test_analyze_endpoint_returns_job_id(tmp_path):
 def test_analyze_unknown_song_404(tmp_path):
     app = create_app(storage_root=tmp_path)
     client = TestClient(app)
-    r = client.post("/api/songs/deadbeef/analyze")
+    # Valid-format id that just doesn't exist on disk → 404.
+    r = client.post(f"/api/songs/{'d' * 64}/analyze")
     assert r.status_code == 404
+
+
+def test_analyze_bad_song_id_400(tmp_path):
+    app = create_app(storage_root=tmp_path)
+    client = TestClient(app)
+    r = client.post("/api/songs/deadbeef/analyze")
+    assert r.status_code == 400
 
 
 def test_jobs_sse_streams_progress(tmp_path):
