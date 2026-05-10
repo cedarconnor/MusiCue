@@ -44,7 +44,7 @@ def _slow_worker(payload: dict) -> dict:
 def test_cancel_terminates_running_worker_within_3s() -> None:
     pool = AnalyzePool(max_workers=1)
     try:
-        fut = pool.submit("job-c", _slow_worker, {"sleep_sec": 30.0})
+        pool.submit("job-c", _slow_worker, {"sleep_sec": 30.0})
         # Give the worker a moment to actually start.
         time.sleep(0.8)
         cancelled = pool.cancel("job-c")

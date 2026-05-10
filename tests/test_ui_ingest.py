@@ -1,6 +1,7 @@
 """yt-dlp wrapper. Real network calls are out of scope for unit tests."""
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
 from typing import Any
 
@@ -147,8 +148,6 @@ def test_download_thumbnail_swallows_errors(
 
 
 # ----- SSRF guard ----------------------------------------------------------
-
-import ipaddress
 
 
 def _fake_resolve(ips: list[str]):

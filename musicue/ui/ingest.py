@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
-
 # Hard caps on what we'll let yt-dlp pull. v0.1a's job model is one analyze
 # at a time on a developer machine; these are about cutting off pathological
 # inputs (giant podcast archives, infinite livestreams) rather than

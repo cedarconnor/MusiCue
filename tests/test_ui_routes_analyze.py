@@ -86,7 +86,6 @@ def test_cancel_running_analyze_emits_cancelled_event(tmp_path):
     import json
 
     import httpx
-    import pytest
 
     app = create_app(storage_root=tmp_path)
 
