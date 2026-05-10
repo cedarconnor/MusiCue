@@ -56,6 +56,37 @@ musicue export cuesheet.json --target after_effects --out cuesheet.jsx
 
 Custom grammars are plain YAML — see `musicue/grammars/concert_visuals.yaml` for the format.
 
+#### Beat patterns and phrase-aware grammar *(v0.2c)*
+
+Every `BeatEvent` in `analysis.json` carries pattern-aware fields populated automatically at the end of the analysis pipeline:
+
+- **`phrase_id` / `phrase_position` / `phrase_length`** — which 4/8/16-bar phrase block this beat belongs to and where in it the beat sits.
+- **`is_fill`** — true on bars whose drum-onset density spikes (1.5σ above the mean) at a phrase ending. Flag for the "drum fill before the chorus" idea.
+- **`syncopation`** — per-bar fraction of off-beat onset strength. Higher = more syncopated bar.
+
+Top-level `analysis.patterns` exposes the underlying detections (`phrases`, `fills`, `syncopation_per_bar`) for tools that want to consume them directly.
+
+Grammar filter expressions gain the matching primitives:
+
+```yaml
+- name: phrase_pulse
+  type: impulse
+  source: beats
+  filter: "is_phrase_start()"            # first bar of every phrase
+- name: fill_flash
+  type: impulse
+  source: beats
+  filter: "is_fill()"                    # drum-density fills only
+- name: every_8_bars
+  type: impulse
+  source: beats
+  filter: "every_nth(8, offset=0)"       # bars 0, 8, 16, …
+```
+
+Existing comparison primitives (`>=`, `>`, `<=`, `<`) work directly on `phrase_position`, `phrase_length`, and `syncopation` — e.g. `filter: "syncopation > 0.4"` to fire only on syncopated bars. `concert_visuals` ships with `phrase_pulse` and `fill_flash` examples.
+
+The detection is heuristic — no ML, no new dependencies. Phrase blocks come from greedy bar-window autocorrelation (4/8/16 candidate periods); fills from a per-bar onset z-score; syncopation from on-beat-vs-off-beat onset-strength ratios. Songs in free-time / rubato sections will get low-confidence phrases, which is fine — pattern-aware filters silently no-op when the data isn't strong.
+
 ## Exporters
 
 | Target | Output | Notes |
@@ -116,7 +147,7 @@ ruff check .
 pyright
 ```
 
-### Web UI (v0.2b, dev mode)
+### Web UI (v0.2c, dev mode)
 
 A local web app for browsing your library and inspecting analyses. The whole
 thing runs on your own machine — there is no cloud component.
@@ -141,7 +172,7 @@ Open <http://localhost:8765/>. Default bind is localhost; do NOT bind to
 arbitrary URLs (with private/loopback IPs blocked) and would benefit from
 auth before being exposed.
 
-Test count at HEAD: **359 unit tests passing** across 5 backend milestones plus the v0.1a–d / v0.2a–b web UI work.
+Test count at HEAD: **383 unit tests passing** across 5 backend milestones plus the v0.1a–d / v0.2a–c web UI and analysis work.
 
 #### What you'll see
 
