@@ -1,12 +1,22 @@
-"""Analyses router: GET analysis JSON, GET peaks per stem, GET source audio."""
+"""Analyses router: GET analysis JSON, GET peaks per stem, GET source audio, loop persistence."""
 from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+
+from musicue.index import index as indexer
+from musicue.index import query as index_query
 
 router = APIRouter(prefix="/api/songs/{song_id}", tags=["analyses"])
+
+
+class LoopBody(BaseModel):
+    loop_in: float = Field(ge=0)
+    loop_out: float = Field(ge=0)
+    enabled: bool = True
 
 
 @router.get("/analyses/{analysis_id}")
@@ -50,6 +60,33 @@ def get_stem(
         media_type="audio/wav",
         headers={"Cache-Control": "public, max-age=31536000"},
     )
+
+
+@router.get("/analyses/{analysis_id}/loop", response_model=None)
+def get_loop(song_id: str, analysis_id: str, request: Request):
+    db = request.app.state.index_db
+    loop = index_query.get_loop(db, song_id, analysis_id)
+    if loop is None:
+        return Response(status_code=204)
+    return loop
+
+
+@router.put("/analyses/{analysis_id}/loop")
+def put_loop(
+    song_id: str, analysis_id: str, body: LoopBody, request: Request
+) -> dict:
+    if body.loop_out <= body.loop_in:
+        raise HTTPException(
+            status_code=400, detail="loop_out must exceed loop_in"
+        )
+    db = request.app.state.index_db
+    root = request.app.state.storage_root
+    try:
+        return indexer.set_loop(
+            db, root, song_id, analysis_id, body.model_dump()
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="analysis not found")
 
 
 @router.get("/source")
