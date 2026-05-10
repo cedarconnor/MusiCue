@@ -11,6 +11,7 @@ import { drawAllMixLayers } from "../lib/analysisLayers";
 import OnsetMarkers, { Stem as OverlayStem } from "./OnsetMarkers";
 import PhraseBlocks from "./PhraseBlocks";
 import StemRmsTint from "./StemRmsTint";
+import TransitionTooltipLayer from "./TransitionTooltipLayer";
 import { SelectedAnnotation } from "./LabelChipStrip";
 
 interface Props {
@@ -278,6 +279,22 @@ export default function Timeline({
       >
         <div ref={mixHostRef} />
         <MixLaneOverlay ref={overlayRef} topPx={MIX_HEIGHT} />
+        {duration > 0 && (analysis.section_transitions?.length ?? 0) > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              top: MIX_HEIGHT,
+              left: 0,
+            }}
+          >
+            <TransitionTooltipLayer
+              transitions={analysis.section_transitions ?? []}
+              duration={duration}
+              pxPerSec={pps}
+              forwardClickTo={mixHostRef.current}
+            />
+          </div>
+        )}
         <div style={{ height: OVERLAY_HEIGHT }} />
         {STEMS.map((stem) => (
           <div
