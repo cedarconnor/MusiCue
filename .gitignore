@@ -16,7 +16,6 @@ docs/superpowers/
 .gitignore
 .claude/
 MusicTests/
-FOLLOWUPS.md
 musicue-webui-design.md
 node_modules/
 musicue/ui/static/
