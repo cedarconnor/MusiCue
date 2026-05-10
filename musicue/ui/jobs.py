@@ -58,6 +58,15 @@ class JobManager:
     def list(self) -> list[Job]:
         return list(self._jobs.values())
 
+    def list_for_song(self, song_id: str) -> list[Job]:
+        """Active (queued/running) jobs whose payload references this song."""
+        return [
+            j
+            for j in self._jobs.values()
+            if j.status in (JobStatus.QUEUED, JobStatus.RUNNING)
+            and j.payload.get("song_id") == song_id
+        ]
+
     async def subscribe(self, job_id: str) -> AsyncIterator[dict]:
         if job_id not in self._queues:
             return

@@ -1,14 +1,18 @@
-"""Songs router: list, detail, upload, analyze."""
+"""Songs router: list, detail, upload, analyze, trash, thumbnail."""
 from __future__ import annotations
 
 import asyncio
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Annotated, List
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from musicue.index import index as indexer
+from musicue.index import query as index_query
 from musicue.ui import ingest
 
 router = APIRouter(prefix="/api", tags=["songs"])
@@ -33,21 +37,39 @@ async def _default_analyze(audio_path: Path, run_dir: Path, publish) -> str:
 
 
 @router.get("/songs")
-def list_songs(request: Request) -> dict:
-    storage = request.app.state.storage
-    songs = storage.list_songs()
-    return {
-        "songs": [
-            {
-                "id": s.id,
-                "title": s.title,
-                "has_analysis": s.has_analysis,
-                "analysis_ids": s.analysis_ids,
-                "source_url": s.source_url,
-            }
-            for s in songs
-        ]
-    }
+def list_songs(
+    request: Request,
+    q: Annotated[str | None, Query()] = None,
+    filter: Annotated[List[str] | None, Query()] = None,
+    sort: Annotated[str, Query()] = "added_at",
+    trashed: Annotated[int, Query()] = 0,
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict:
+    db = request.app.state.index_db
+    rows = index_query.list_songs(
+        db,
+        q=q,
+        filters=filter or (),
+        sort=sort,
+        trashed=bool(trashed),
+        limit=limit,
+        offset=offset,
+    )
+    if rows:
+        ids = [r["id"] for r in rows]
+        placeholders = ",".join("?" * len(ids))
+        analyses: dict[str, list[str]] = {sid: [] for sid in ids}
+        for sid, aid in db.execute(
+            f"SELECT song_id, id FROM analyses WHERE song_id IN ({placeholders}) "
+            f"ORDER BY created_at DESC",
+            ids,
+        ):
+            analyses[sid].append(aid)
+        for r in rows:
+            r["analysis_ids"] = analyses.get(r["id"], [])
+            r["has_analysis"] = bool(r["analysis_ids"])
+    return {"songs": rows}
 
 
 @router.get("/songs/{song_id}")
@@ -87,6 +109,9 @@ async def upload_song(
         )
     finally:
         tmp_path.unlink(missing_ok=True)
+    indexer.refresh_song(
+        request.app.state.index_db, request.app.state.storage_root, rec.id
+    )
     return {"id": rec.id, "title": rec.title, "source_ext": rec.source_ext}
 
 
@@ -107,6 +132,11 @@ async def analyze_song(song_id: str, request: Request) -> dict:
     async def runner() -> None:
         try:
             analysis_id = await analyze_func(rec.source_path, run_dir, publish)
+            indexer.refresh_song(
+                request.app.state.index_db,
+                request.app.state.storage_root,
+                song_id,
+            )
             await jobs.complete(job.id, result={"analysis_id": analysis_id})
         except Exception as exc:  # noqa: BLE001
             await jobs.fail(job.id, error=f"{type(exc).__name__}: {exc}")
@@ -187,6 +217,11 @@ async def songs_from_url(request: Request, body: FromUrlRequest) -> dict:
             analysis_id = await analyze_func(
                 rec.source_path, run_dir, rescaled_publish
             )
+            indexer.refresh_song(
+                request.app.state.index_db,
+                request.app.state.storage_root,
+                rec.id,
+            )
             await jobs.complete(
                 job.id,
                 result={"song_id": rec.id, "analysis_id": analysis_id},
@@ -196,3 +231,56 @@ async def songs_from_url(request: Request, body: FromUrlRequest) -> dict:
 
     asyncio.create_task(runner())
     return {"job_id": job.id, "queue": "ingest", "status": "queued"}
+
+
+@router.get("/songs/{song_id}/thumbnail")
+def get_thumbnail(song_id: str, request: Request) -> FileResponse:
+    storage = request.app.state.storage
+    p = storage.song_dir(song_id) / "thumbnail.jpg"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="thumbnail not found")
+    return FileResponse(
+        p,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=31536000"},
+    )
+
+
+@router.post("/songs/{song_id}/trash")
+def trash_song(song_id: str, request: Request) -> dict:
+    db = request.app.state.index_db
+    root = request.app.state.storage_root
+    jobs = request.app.state.jobs
+    if jobs.list_for_song(song_id):
+        raise HTTPException(
+            status_code=409, detail="job in progress for this song"
+        )
+    try:
+        ts = indexer.set_trashed(db, root, song_id, trashed=True)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="song not found")
+    return {"id": song_id, "trashed_at": ts}
+
+
+@router.post("/songs/{song_id}/untrash")
+def untrash_song(song_id: str, request: Request) -> dict:
+    db = request.app.state.index_db
+    root = request.app.state.storage_root
+    try:
+        indexer.set_trashed(db, root, song_id, trashed=False)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="song not found")
+    return {"id": song_id, "trashed_at": None}
+
+
+@router.delete("/songs/{song_id}")
+def delete_song(song_id: str, request: Request) -> dict:
+    db = request.app.state.index_db
+    root = request.app.state.storage_root
+    try:
+        indexer.delete_song(db, root, song_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="song not found")
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"id": song_id, "deleted": True}

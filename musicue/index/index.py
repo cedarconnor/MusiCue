@@ -77,6 +77,104 @@ def _iter_song_dirs(storage_root: Path) -> Iterable[Path]:
     return (d for d in sorted(songs_dir.iterdir()) if d.is_dir())
 
 
+def _ingest_song_dir(db: sqlite3.Connection, song_dir: Path) -> None:
+    """Insert / replace one song's rows from its directory.
+
+    Cascading FK on analyses takes care of analyses + loop_regions tied
+    to this song when the song row is deleted first.
+    """
+    sid = song_dir.name
+    db.execute("DELETE FROM songs WHERE id=?", (sid,))
+
+    title = _read_optional_text(song_dir / "title.txt") or sid
+    source_url = _read_optional_text(song_dir / "source_url.txt")
+    source_ext = _source_ext(song_dir) or "bin"
+    trashed_at = _read_optional_text(song_dir / ".trashed_at")
+    has_thumbnail = int((song_dir / "thumbnail.jpg").exists())
+    added_at = _utc_iso_from_mtime(song_dir)
+
+    analyses_dir = song_dir / "analyses"
+    latest: dict | None = None
+    analysis_rows: list[tuple] = []
+    loop_rows: list[tuple] = []
+    if analyses_dir.exists():
+        for adir in sorted(
+            analyses_dir.iterdir(),
+            key=lambda p: p.stat().st_mtime if p.exists() else 0,
+        ):
+            if not adir.is_dir():
+                continue
+            summary = _summarise_analysis(adir)
+            if summary is None:
+                continue
+            created_at = _utc_iso_from_mtime(adir)
+            analysis_rows.append(
+                (
+                    adir.name,
+                    sid,
+                    created_at,
+                    summary["has_stems"],
+                    summary["has_clap"],
+                    summary["has_drum_cls"],
+                    summary["schema_ver"],
+                )
+            )
+            latest = summary
+            loops = adir / "loops.json"
+            if loops.exists():
+                try:
+                    ld = json.loads(loops.read_text(encoding="utf-8"))
+                    loop_rows.append(
+                        (
+                            sid,
+                            adir.name,
+                            float(ld["loop_in"]),
+                            float(ld["loop_out"]),
+                            int(bool(ld.get("enabled", True))),
+                            ld.get(
+                                "updated_at",
+                                datetime.now(tz=timezone.utc).isoformat(),
+                            ),
+                        )
+                    )
+                except (OSError, KeyError, ValueError, json.JSONDecodeError):
+                    pass
+
+    db.execute(
+        """INSERT INTO songs
+           (id, title, source_url, source_ext, duration_sec, bpm_global,
+            lufs_integrated, added_at, trashed_at, has_thumbnail)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            sid,
+            title,
+            source_url,
+            source_ext,
+            (latest or {}).get("duration_sec"),
+            (latest or {}).get("bpm_global"),
+            (latest or {}).get("lufs_integrated"),
+            added_at,
+            trashed_at,
+            has_thumbnail,
+        ),
+    )
+    if analysis_rows:
+        db.executemany(
+            """INSERT INTO analyses
+               (id, song_id, created_at, has_stems, has_clap,
+                has_drum_cls, schema_ver)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            analysis_rows,
+        )
+    if loop_rows:
+        db.executemany(
+            """INSERT INTO loop_regions
+               (song_id, analysis_id, loop_in, loop_out, enabled, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            loop_rows,
+        )
+
+
 def rebuild(db: sqlite3.Connection, storage_root: Path) -> None:
     """Drop user data tables and reinsert from filesystem.
 
@@ -87,96 +185,21 @@ def rebuild(db: sqlite3.Connection, storage_root: Path) -> None:
     db.execute("DELETE FROM loop_regions")
     db.execute("DELETE FROM analyses")
     db.execute("DELETE FROM songs")
-
     for song_dir in _iter_song_dirs(storage_root):
-        sid = song_dir.name
-        title = _read_optional_text(song_dir / "title.txt") or sid
-        source_url = _read_optional_text(song_dir / "source_url.txt")
-        source_ext = _source_ext(song_dir) or "bin"
-        trashed_at = _read_optional_text(song_dir / ".trashed_at")
-        has_thumbnail = int((song_dir / "thumbnail.jpg").exists())
-        added_at = _utc_iso_from_mtime(song_dir)
+        _ingest_song_dir(db, song_dir)
+    db.commit()
 
-        analyses_dir = song_dir / "analyses"
-        latest: dict | None = None
-        analysis_rows: list[tuple] = []
-        loop_rows: list[tuple] = []
-        if analyses_dir.exists():
-            for adir in sorted(
-                analyses_dir.iterdir(),
-                key=lambda p: p.stat().st_mtime if p.exists() else 0,
-            ):
-                if not adir.is_dir():
-                    continue
-                summary = _summarise_analysis(adir)
-                if summary is None:
-                    continue
-                created_at = _utc_iso_from_mtime(adir)
-                analysis_rows.append(
-                    (
-                        adir.name,
-                        sid,
-                        created_at,
-                        summary["has_stems"],
-                        summary["has_clap"],
-                        summary["has_drum_cls"],
-                        summary["schema_ver"],
-                    )
-                )
-                latest = summary
-                loops = adir / "loops.json"
-                if loops.exists():
-                    try:
-                        ld = json.loads(loops.read_text(encoding="utf-8"))
-                        loop_rows.append(
-                            (
-                                sid,
-                                adir.name,
-                                float(ld["loop_in"]),
-                                float(ld["loop_out"]),
-                                int(bool(ld.get("enabled", True))),
-                                ld.get(
-                                    "updated_at",
-                                    datetime.now(tz=timezone.utc).isoformat(),
-                                ),
-                            )
-                        )
-                    except (OSError, KeyError, ValueError, json.JSONDecodeError):
-                        pass
 
-        db.execute(
-            """INSERT INTO songs
-               (id, title, source_url, source_ext, duration_sec, bpm_global,
-                lufs_integrated, added_at, trashed_at, has_thumbnail)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                sid,
-                title,
-                source_url,
-                source_ext,
-                (latest or {}).get("duration_sec"),
-                (latest or {}).get("bpm_global"),
-                (latest or {}).get("lufs_integrated"),
-                added_at,
-                trashed_at,
-                has_thumbnail,
-            ),
-        )
-        if analysis_rows:
-            db.executemany(
-                """INSERT INTO analyses
-                   (id, song_id, created_at, has_stems, has_clap,
-                    has_drum_cls, schema_ver)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                analysis_rows,
-            )
-        if loop_rows:
-            db.executemany(
-                """INSERT INTO loop_regions
-                   (song_id, analysis_id, loop_in, loop_out, enabled, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                loop_rows,
-            )
+def refresh_song(
+    db: sqlite3.Connection, storage_root: Path, song_id: str
+) -> None:
+    """Re-ingest a single song's directory after upload / analyze writes."""
+    song_dir = storage_root / "songs" / song_id
+    if not song_dir.is_dir():
+        db.execute("DELETE FROM songs WHERE id=?", (song_id,))
+        db.commit()
+        return
+    _ingest_song_dir(db, song_dir)
     db.commit()
 
 

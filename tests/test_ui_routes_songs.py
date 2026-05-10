@@ -78,11 +78,17 @@ def test_list_and_get_surface_source_url(tmp_path):
     )
     song_id = r.json()["id"]
 
-    # Simulate the URL-ingest path's sidecar write.
+    # Simulate the URL-ingest path's sidecar write. v0.1b reads the list
+    # through the SQLite index, so we also have to ask the index to
+    # re-ingest this song dir (the real /from_url runner calls
+    # ``refresh_song`` for us after sidecars are written).
     sd = tmp_path / "songs" / song_id
     (sd / "source_url.txt").write_text(
         "https://www.youtube.com/watch?v=demo", encoding="utf-8"
     )
+    from musicue.index import index as indexer
+
+    indexer.refresh_song(app.state.index_db, app.state.storage_root, song_id)
 
     r = client.get(f"/api/songs/{song_id}")
     assert r.status_code == 200
