@@ -144,3 +144,73 @@ def test_download_thumbnail_swallows_errors(
     # Must not raise; thumbnail is best-effort.
     ingest._download_thumbnail("https://example.com/thumb.jpg", out)
     assert not out.exists()
+
+
+# ----- SSRF guard ----------------------------------------------------------
+
+import ipaddress
+
+
+def _fake_resolve(ips: list[str]):
+    return lambda host: [ipaddress.ip_address(ip) for ip in ips]
+
+
+@pytest.mark.parametrize(
+    "literal_url",
+    [
+        "http://127.0.0.1/",
+        "http://localhost/",  # via resolution to 127.0.0.1
+        "http://169.254.169.254/latest/meta-data/",  # AWS metadata
+        "http://[::1]/",
+        "http://10.0.0.5/",
+        "http://192.168.1.1/",
+        "http://172.16.0.1/",
+        "http://0.0.0.0/",
+    ],
+)
+def test_validate_destination_safe_rejects_internal_targets(
+    literal_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Resolve hostnames like "localhost" to 127.0.0.1.
+    monkeypatch.setattr(ingest, "_resolve_hostname", _fake_resolve(["127.0.0.1"]))
+    with pytest.raises(ValueError, match="refusing|loopback|private|link-local"):
+        ingest._validate_destination_safe(literal_url)
+
+
+def test_validate_destination_safe_accepts_public_ip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(ingest, "_resolve_hostname", _fake_resolve(["8.8.8.8"]))
+    # Should not raise.
+    ingest._validate_destination_safe("https://example.com/x")
+
+
+def test_validate_destination_safe_rejects_if_any_resolved_ip_is_private(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Hostname that resolves to BOTH a public and a private IP -- conservative
+    # behaviour is to reject (an attacker can race the connect to the private).
+    monkeypatch.setattr(
+        ingest, "_resolve_hostname", _fake_resolve(["8.8.8.8", "10.0.0.1"])
+    )
+    with pytest.raises(ValueError, match="private"):
+        ingest._validate_destination_safe("https://example.com/x")
+
+
+def test_download_url_rejects_unresolvable_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(host: str):
+        # Mirror what the real _resolve_hostname does on a gaierror.
+        raise ValueError(f"could not resolve host {host!r}: no such host")
+
+    monkeypatch.setattr(ingest, "_resolve_hostname", boom)
+    with pytest.raises(ValueError, match="could not resolve"):
+        ingest.download_url("https://nonexistent.invalid/x", tmp_path)
+
+
+def test_duration_filter_rejects_long_videos() -> None:
+    f = ingest._make_duration_filter(30 * 60)
+    assert f({"duration": 60}) is None
+    assert "duration cap" in (f({"duration": 60 * 60}) or "")
+    assert f({}) is None  # no declared duration -- accept; size cap covers

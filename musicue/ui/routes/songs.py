@@ -124,8 +124,11 @@ async def songs_from_url(request: Request, body: FromUrlRequest) -> dict:
     analyze_func = getattr(request.app.state, "analyze_func", _default_analyze)
 
     # Pre-validate so callers get a 400 instead of an async error event.
+    # Both checks (structural + SSRF guard) run synchronously here; the
+    # SSRF guard does DNS, but it's bounded by the resolver's timeout.
     try:
         ingest._validate_url(body.url)
+        ingest._validate_destination_safe(body.url)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
