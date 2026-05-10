@@ -116,7 +116,7 @@ ruff check .
 pyright
 ```
 
-### Web UI (v0.2a, dev mode)
+### Web UI (v0.2b, dev mode)
 
 A local web app for browsing your library and inspecting analyses. The whole
 thing runs on your own machine — there is no cloud component.
@@ -141,7 +141,7 @@ Open <http://localhost:8765/>. Default bind is localhost; do NOT bind to
 arbitrary URLs (with private/loopback IPs blocked) and would benefit from
 auth before being exposed.
 
-Test count at HEAD: **340 unit tests passing** across 5 backend milestones plus the v0.1a–d / v0.2a web UI work.
+Test count at HEAD: **359 unit tests passing** across 5 backend milestones plus the v0.1a–d / v0.2a–b web UI work.
 
 #### What you'll see
 
@@ -247,15 +247,14 @@ The **Zoom slider** above the transport stretches the timeline horizontally up t
 
 The **Export ▶** button on the right of the transport row opens a dialog that turns the current song into a file your downstream tool can read. There are two top-level choices:
 
-- **Format** — the file type. Nine options today:
-  - **CSV** / **JSON** — simple tabular or structured data, good for spreadsheets, Python, or custom tooling.
-  - **MIDI** — a standard `.mid` file. Drum hits become General-MIDI drum notes; continuous curves become CC74. Imports into any DAW.
-  - **After Effects** — an ExtendScript `.jsx` you run inside AE; it builds null layers with Slider Control keyframes and drops comp markers at every section boundary.
-  - **TouchDesigner** — a CHOP-friendly CSV plus a separate events CSV for Table DAT triggers.
-  - **OSC** — a JSON bundle plus a tiny Python playback script; broadcasts events live to whatever address you pick.
-  - **Houdini** — CHOP-friendly CSV with a metadata header, a `time` channel, and one channel per track.
-  - **disguise** — a cue list CSV in `HH:MM:SS:FF` timecode at your chosen frame rate.
-  - **Unreal Sequencer** — JSON with event tracks and float curves with interp keys; drag into a Sequencer asset.
+- **Format** — the file type. Thirteen options today, grouped in the dropdown by use case:
+  - **Data** — **CSV** / **JSON**. Simple tabular or structured data, good for spreadsheets, Python, or custom tooling.
+  - **Music** — **MIDI**. A standard `.mid` file. Drum hits become General-MIDI drum notes; continuous curves become CC74. Imports into any DAW.
+  - **Motion graphics** — **After Effects**. An ExtendScript `.jsx` you run inside AE; it builds null layers with Slider Control keyframes and drops comp markers at every section boundary.
+  - **Real-time** — **TouchDesigner** (CHOP CSV + events CSV), **OSC** (JSON bundle + a tiny Python playback script), **Unreal Sequencer** (JSON with event tracks + float curves).
+  - **VFX** — **Houdini** CHOP CSV with a metadata header, a `time` channel, and one channel per track.
+  - **Show control** — **disguise** cue list CSV in `HH:MM:SS:FF` timecode.
+  - **Editorial** *(v0.2b)* — **EDL** (CMX 3600 — works in Avid, Resolve, Premiere), **FCPXML** (Resolve + Final Cut Pro), **Premiere markers CSV** (Premiere's stock importer), **Resolve markers CSV** (UTF-8 BOM + CRLF, what Resolve's import-markers dialog wants). Drop straight into a timeline and you'll see one labelled marker per song section, plus a marker for each transition.
 
 - **Grammar** — *what* events get emitted. The four built-in presets are tuned for different creative jobs:
   - **Concert visuals** — downbeat pulse, per-class drum tracks, drop labels, vocal phrase envelopes, section ramps, energy curve. Good default for music-reactive video.
@@ -282,6 +281,19 @@ Every export carries a **frame rate** that the cuesheet uses for animation timin
 The chosen FPS is recorded on the cuesheet itself and on every event in `analysis.json` and `cuesheet.json`. CSV exports gain a `frame_number` column; After Effects, disguise, TouchDesigner, and Houdini exports write their timecodes at this rate. So if you change FPS in the dialog, every downstream tool sees the right frame numbers without any per-tool conversion.
 
 CLI users get the same thing via `--fps` and `--drop-frame` flags on `musicue analyze`, `musicue compile`, and `musicue render`. Old `analysis.json` files (schema 1.1) keep working — they just lack the frame fields until you re-analyze.
+
+##### Editorial markers *(v0.2b)*
+
+![Export modal — FCPXML format with a Markers multi-select](docs/screenshots/export_modal_fcpxml.png)
+
+Picking any of the four editorial formats reveals a **Markers** multi-select where you choose which kinds of events become timeline markers:
+
+- **Sections** *(default on)* — one marker per detected song part (intro, verse, chorus, bridge, solo, outro), labelled with the section name in the marker title.
+- **Transitions** *(default on)* — one marker per section boundary, labelled with the kind of transition (`ease_in`, `ease_out`, etc.) so you can see at a glance whether the song eases or slams into each new part.
+- **Impulses** *(off by default)* — one marker per drum hit / downbeat / impulse track event. Useful for cutting to specific hits, but turn it on selectively or your timeline panel gets very crowded.
+- **Envelopes** *(off by default)* — one marker per phrase block (vocals, lead instrument). Useful when you're cutting around a vocalist's lines.
+
+Color is assigned by category — sections show as **Blue**, transitions as **Red**, impulses as **Green**, envelopes as **Yellow** — matching the named colors that Resolve, Premiere, and FCPX/Resolve recognize natively. EDL writes the color as a `* COLOR:` comment line; FCPXML prefixes the color into the marker name (e.g. `[Blue] verse`); Premiere ignores color in CSV (the format doesn't carry it); Resolve respects the named-color column directly.
 
 > Audio export (reference mix, individual stems) and video export (timeline render) are planned for **v0.2d**. The CLI commands (`musicue export`, `musicue render`, `scripts/make_qc_video.py`) cover those today.
 

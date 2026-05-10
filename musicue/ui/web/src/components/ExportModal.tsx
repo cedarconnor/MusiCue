@@ -5,16 +5,36 @@ import {
   exportCuesheet,
 } from "../lib/exportApi";
 
-const FORMATS: Array<{ key: ExportFormat; label: string }> = [
-  { key: "csv", label: "CSV" },
-  { key: "json", label: "JSON" },
-  { key: "midi", label: "MIDI (.mid)" },
-  { key: "after_effects", label: "After Effects (.jsx)" },
-  { key: "touchdesigner", label: "TouchDesigner (CHOP CSV)" },
-  { key: "osc", label: "OSC (JSON bundle)" },
-  { key: "houdini", label: "Houdini CHOP CSV" },
-  { key: "disguise", label: "disguise cue list" },
-  { key: "unreal", label: "Unreal Sequencer (JSON)" },
+const FORMATS: Array<{ key: ExportFormat; label: string; group?: string }> = [
+  { key: "csv", label: "CSV", group: "Data" },
+  { key: "json", label: "JSON", group: "Data" },
+  { key: "midi", label: "MIDI (.mid)", group: "Music" },
+  { key: "after_effects", label: "After Effects (.jsx)", group: "Motion graphics" },
+  { key: "touchdesigner", label: "TouchDesigner (CHOP CSV)", group: "Real-time" },
+  { key: "osc", label: "OSC (JSON bundle)", group: "Real-time" },
+  { key: "houdini", label: "Houdini CHOP CSV", group: "VFX" },
+  { key: "disguise", label: "disguise cue list", group: "Show control" },
+  { key: "unreal", label: "Unreal Sequencer (JSON)", group: "Real-time" },
+  { key: "edl", label: "EDL (CMX 3600)", group: "Editorial" },
+  { key: "fcpxml", label: "FCPXML (.fcpxml)", group: "Editorial" },
+  { key: "premiere_markers", label: "Premiere markers (CSV)", group: "Editorial" },
+  { key: "resolve_markers", label: "Resolve markers (CSV)", group: "Editorial" },
+];
+
+const EDITORIAL_FORMATS: ReadonlySet<ExportFormat> = new Set([
+  "edl",
+  "fcpxml",
+  "premiere_markers",
+  "resolve_markers",
+]);
+
+type MarkerSource = "section" | "transition" | "impulse" | "envelope";
+
+const ALL_MARKER_SOURCES: ReadonlyArray<{ key: MarkerSource; label: string }> = [
+  { key: "section", label: "Sections" },
+  { key: "transition", label: "Transitions" },
+  { key: "impulse", label: "Impulses (drum hits, etc.)" },
+  { key: "envelope", label: "Envelopes (phrases)" },
 ];
 
 const GRAMMARS: Array<{ key: ExportGrammar; label: string }> = [
@@ -57,6 +77,9 @@ export default function ExportModal({
   const [ticks, setTicks] = useState<number>(480);
   const [oscHost, setOscHost] = useState<string>("127.0.0.1");
   const [oscPort, setOscPort] = useState<number>(9000);
+  const [markerSources, setMarkerSources] = useState<Set<MarkerSource>>(
+    new Set(["section", "transition"]),
+  );
   const [busy, setBusy] = useState<boolean>(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -75,6 +98,9 @@ export default function ExportModal({
         ticks_per_beat: format === "midi" ? ticks : undefined,
         osc_host: format === "osc" ? oscHost : undefined,
         osc_port: format === "osc" ? oscPort : undefined,
+        marker_sources: EDITORIAL_FORMATS.has(format)
+          ? Array.from(markerSources)
+          : undefined,
       });
       onClose();
     } catch (e) {
@@ -97,10 +123,21 @@ export default function ExportModal({
             onChange={(e) => setFormat(e.target.value as ExportFormat)}
             style={inputStyle}
           >
-            {FORMATS.map((f) => (
-              <option key={f.key} value={f.key}>
-                {f.label}
-              </option>
+            {Array.from(
+              FORMATS.reduce((acc, f) => {
+                const g = f.group ?? "Other";
+                if (!acc.has(g)) acc.set(g, []);
+                acc.get(g)!.push(f);
+                return acc;
+              }, new Map<string, typeof FORMATS>()),
+            ).map(([groupName, opts]) => (
+              <optgroup key={groupName} label={groupName}>
+                {opts.map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
 
@@ -195,6 +232,32 @@ export default function ExportModal({
                 }
                 style={inputStyle}
               />
+            </>
+          )}
+
+          {EDITORIAL_FORMATS.has(format) && (
+            <>
+              <label style={labelStyle}>Markers</label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {ALL_MARKER_SOURCES.map((s) => (
+                  <label
+                    key={s.key}
+                    style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={markerSources.has(s.key)}
+                      onChange={(e) => {
+                        const next = new Set(markerSources);
+                        if (e.target.checked) next.add(s.key);
+                        else next.delete(s.key);
+                        setMarkerSources(next);
+                      }}
+                    />
+                    {s.label}
+                  </label>
+                ))}
+              </div>
             </>
           )}
         </div>
