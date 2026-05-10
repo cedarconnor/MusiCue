@@ -43,6 +43,7 @@ def list_songs(request: Request) -> dict:
                 "title": s.title,
                 "has_analysis": s.has_analysis,
                 "analysis_ids": s.analysis_ids,
+                "source_url": s.source_url,
             }
             for s in songs
         ]
@@ -61,6 +62,7 @@ def get_song(song_id: str, request: Request) -> dict:
         "id": rec.id,
         "title": rec.title,
         "source_ext": rec.source_ext,
+        "source_url": rec.source_url,
         "has_analysis": summary.has_analysis if summary else False,
         "analysis_ids": summary.analysis_ids if summary else [],
     }

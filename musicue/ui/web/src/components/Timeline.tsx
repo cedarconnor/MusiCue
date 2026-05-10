@@ -141,6 +141,11 @@ export default function Timeline({
             peaks,
             url: stemAudioUrl(songId, analysisId, stem),
           });
+          // Mute on creation: stems are visualisation slaves; only the mix
+          // is audible by default. A solo toggle below flips the audibility.
+          // Without this, all four stems play unmuted on top of the mix and
+          // the user hears every part doubled.
+          ws.setMuted(true);
           stemsRef.current[stem] = ws;
         }),
       );
