@@ -116,6 +116,28 @@ ruff check .
 pyright
 ```
 
+### Web UI (v0.1a, dev mode)
+
+The frontend bundle isn't tracked in git (`musicue/ui/static/` is gitignored)
+and there's no `pip install` build hook yet -- packaging the wheel with the
+React assets is a v1.0 milestone. Until then, build it manually after a fresh
+checkout:
+
+```powershell
+cd musicue/ui/web
+npm install
+npm run build      # writes the bundle to ../static/
+
+# Then back at the repo root, run the server:
+cd ../../..
+python -m uvicorn musicue.ui.server:create_app --factory
+```
+
+Open <http://127.0.0.1:8000/library>. Default bind is localhost; do NOT bind
+to `0.0.0.0` over an untrusted network -- the URL-ingest endpoint can fetch
+arbitrary URLs (with private/loopback IPs blocked) and would benefit from
+auth before being exposed.
+
 Test count at HEAD: **190 unit tests passing** across 5 milestones (M0 walking skeleton, M1 full analysis, M2 compiler+grammars+drum CNN, M3 exporters round 1, M4 exporters round 2 + batch + scripts).
 
 ## Operational scripts
