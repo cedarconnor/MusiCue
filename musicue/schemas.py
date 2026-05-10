@@ -29,6 +29,8 @@ class AnalysisConfig(BaseModel):
     drum_classifier_version: str = ""
     beat_backend: Literal["allin1", "librosa"] = "allin1"
     curve_hop_sec: float = 0.04
+    fps: float = 24.0
+    drop_frame: bool = False
 
 
 class TempoInfo(BaseModel):
@@ -50,6 +52,8 @@ class BeatEvent(BaseModel):
     is_downbeat: bool
     confidence: float
     timescale: Literal["micro", "meso", "macro"] = "micro"
+    frame: int | None = None
+    timecode: str | None = None
 
 
 class SectionEvent(BaseModel):
@@ -58,6 +62,10 @@ class SectionEvent(BaseModel):
     label: str
     confidence: float
     timescale: Literal["micro", "meso", "macro"] = "macro"
+    frame_start: int | None = None
+    frame_end: int | None = None
+    timecode_start: str | None = None
+    timecode_end: str | None = None
 
 
 class RampEvidence(BaseModel):
@@ -71,6 +79,8 @@ class SectionTransition(BaseModel):
     to: str
     ramp: dict[str, Any]
     ramp_evidence: RampEvidence
+    frame: int | None = None
+    timecode: str | None = None
 
     model_config = {"populate_by_name": True}
 
@@ -82,6 +92,8 @@ class OnsetEvent(BaseModel):
     drum_class: str | None = None
     drum_class_conf: float | None = None
     labels: list[Label] = Field(default_factory=list)
+    frame: int | None = None
+    timecode: str | None = None
 
 
 class MidiNote(BaseModel):
@@ -89,6 +101,8 @@ class MidiNote(BaseModel):
     duration: float
     pitch: int
     velocity: int
+    frame: int | None = None
+    timecode: str | None = None
 
 
 class PhraseEvent(BaseModel):
@@ -101,10 +115,14 @@ class PhraseEvent(BaseModel):
     pitch_contour: list[int]
     energy_curve: TimedCurve
     labels: list[Label] = Field(default_factory=list)
+    frame_start: int | None = None
+    frame_end: int | None = None
+    timecode_start: str | None = None
+    timecode_end: str | None = None
 
 
 class AnalysisResult(BaseModel):
-    schema_version: str = "1.1"
+    schema_version: str = "1.2"
     source: SourceInfo
     analysis_config: AnalysisConfig
     stems: dict[str, str]
@@ -136,9 +154,11 @@ class CueTrack(BaseModel):
 
 
 class CueSheet(BaseModel):
-    schema_version: str = "1.1"
+    schema_version: str = "1.2"
     source_sha256: str
     grammar: str
     duration_sec: float
+    fps: float = 24.0
+    drop_frame: bool = False
     tempo_map: list[dict[str, float]] = Field(default_factory=list)
     tracks: list[CueTrack] = Field(default_factory=list)
