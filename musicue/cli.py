@@ -274,5 +274,25 @@ def ui(
     uvicorn.run(app_obj, host=host, port=port, log_level="info")
 
 
+@app.command(name="index")
+def index_cmd(
+    root: Path = typer.Option(
+        None,
+        "--root",
+        help="Storage root (default: ~/.musicue).",
+    ),
+    status: bool = typer.Option(
+        False, "--status", help="Print row counts instead of rebuilding."
+    ),
+) -> None:
+    """Manage the Web UI SQLite index."""
+    from musicue.index.cli import cmd_rebuild, cmd_status, default_root
+
+    target = root or default_root()
+    if status:
+        raise typer.Exit(cmd_status(target))
+    raise typer.Exit(cmd_rebuild(target))
+
+
 if __name__ == "__main__":
     app()
