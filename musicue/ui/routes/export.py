@@ -55,6 +55,7 @@ class ExportRequest(BaseModel):
     grammar: str = Field(..., description="One of the four built-in grammars.")
     filename: str | None = None
     fps: float | None = Field(default=None, gt=0, le=240)
+    drop_frame: bool = False
     ticks_per_beat: int | None = Field(default=None, gt=0, le=10000)
     osc_host: str | None = None
     osc_port: int | None = Field(default=None, gt=0, lt=65536)
@@ -89,7 +90,12 @@ def export_cuesheet(
         raise HTTPException(status_code=500, detail=f"analysis parse error: {e}") from e
 
     try:
-        cuesheet = compile_analysis(analysis, grammar=body.grammar)
+        cuesheet = compile_analysis(
+            analysis,
+            grammar=body.grammar,
+            fps=body.fps,
+            drop_frame=body.drop_frame if body.fps is not None else None,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"compile failed: {e}") from e
 
