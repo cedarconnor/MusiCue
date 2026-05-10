@@ -53,6 +53,8 @@ def create_app(storage_root: Path | None = None) -> FastAPI:
 
         index_html = static_dir / "index.html"
 
+        static_root = static_dir.resolve()
+
         @app.get("/{full_path:path}")
         async def spa_fallback(full_path: str) -> FileResponse:
             """Catch-all so React Router routes (e.g. /editor/<id>/<id>) load
@@ -66,10 +68,19 @@ def create_app(storage_root: Path | None = None) -> FastAPI:
             if full_path.startswith("api/"):
                 raise HTTPException(status_code=404, detail="Not Found")
             # Serve top-level static files like favicon.ico if they exist;
-            # otherwise fall back to the SPA index.
-            candidate = static_dir / full_path
-            if full_path and candidate.is_file():
-                return FileResponse(candidate)
+            # otherwise fall back to the SPA index. Resolve and bound-check
+            # the candidate so encoded path traversal (e.g. /%2e%2e/cli.py)
+            # cannot escape ``static_dir`` and read source files.
+            if full_path:
+                try:
+                    candidate = (static_dir / full_path).resolve()
+                    if (
+                        candidate.is_relative_to(static_root)
+                        and candidate.is_file()
+                    ):
+                        return FileResponse(candidate)
+                except (OSError, ValueError):
+                    pass
             return FileResponse(index_html)
 
     return app
