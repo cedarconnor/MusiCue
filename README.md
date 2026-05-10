@@ -118,6 +118,9 @@ pyright
 
 ### Web UI (v0.1c, dev mode)
 
+A local web app for browsing your library and inspecting analyses. The whole
+thing runs on your own machine — there is no cloud component.
+
 The frontend bundle isn't tracked in git (`musicue/ui/static/` is gitignored)
 and there's no `pip install` build hook yet -- packaging the wheel with the
 React assets is a v1.0 milestone. Until then, build it manually after a fresh
@@ -138,12 +141,105 @@ Open <http://localhost:8765/>. Default bind is localhost; do NOT bind to
 arbitrary URLs (with private/loopback IPs blocked) and would benefit from
 auth before being exposed.
 
-Editor features by milestone:
-- **v0.1a** — mix + 4-stem WaveSurfer lanes, section/onset/beat overlay, transport, zoom.
-- **v0.1b** — per-stem onset markers + phrase blocks, label chip strip, server-canonical loop persistence with localStorage cache.
-- **v0.1c** — continuous-curves panel (LUFS, spectral centroid/flux, stereo width/pan) with autoscale toggle and playhead sync, per-stem RMS tint on each lane, section-transition ramp shapes with hover tooltips, tempo range in the header when `bpm_curve` varies.
-
 Test count at HEAD: **298 unit tests passing** across 5 backend milestones plus the v0.1a/b/c web UI work.
+
+#### What you'll see
+
+The UI has two pages: a **Library** to manage songs, and an **Editor** to look at one song in depth.
+
+**Library**
+
+![Library page](docs/screenshots/library.png)
+
+- **Drag a file** onto the drop zone, or **paste a URL** (YouTube, SoundCloud, Bandcamp, etc.) to bring a new song in. The server downloads, separates the stems, and runs analysis in the background.
+- **Search and filter** by title, by whether stems are ready, by tempo bucket, or by how recently the song was added.
+- **Trash** lets you remove songs without immediately deleting the audio; you can restore them or empty the trash later.
+
+**Editor**
+
+![Editor — full view, zoomed in for clarity](docs/screenshots/editor_zoomed.png)
+
+The Editor stacks five horizontal lanes from top to bottom:
+
+1. **Mix waveform** — the song as you'd hear it.
+2. **Section bar** — labelled blocks (intro, verse, chorus, …) showing the song's structure.
+3. **Onset / beat strip** — every drum hit, attack, and beat on the mix.
+4. **Four stem lanes** — drums, bass, vocals, other — each as its own waveform with its own coloured onset markers.
+5. **Transport** — play / pause, time readout, click-track toggle.
+6. **Curves panel** — a single continuous measurement (loudness, brightness, etc.) drawn over the song's full duration.
+
+Below the panel, a hint reminds you of the keyboard shortcuts: **Space** play/pause, **I** loop-in, **O** loop-out, **L** toggle loop, **Esc** clear loop.
+
+#### Feature details
+
+##### Header (tempo, duration, loudness)
+
+Top-left of the Editor shows the song's duration, average tempo, and overall loudness in **LUFS** (a broadcast-standard "how loud does this feel" number — closer to 0 is louder; -14 LUFS is roughly streaming-platform target). When the song speeds up or slows down meaningfully, the BPM display switches from a single number to a range (e.g. **75 BPM** → **70–95 BPM**) so you know at a glance the tempo isn't constant.
+
+##### Mix waveform + section bar (with transition ramps)
+
+The grey waveform at the top is the full mix. Just under it, the **section bar** shows where each part of the song lives — intro, verse, chorus, bridge, solo, outro — with the label written into each block.
+
+At every section boundary you'll see a small coloured **ramp shape** rising into the next section. The ramp's curvature tells you *how* the song transitions:
+
+- A **steep, late-rising shape** is an "ease-in" — energy stays low and then snaps up at the last moment. Classic chorus drop.
+- A **gentle early rise** is an "ease-out" — the song eases out of the previous section gradually.
+- An **S-curve** is "ease-in-out" — a smooth swell.
+- A **straight line** is a linear transition.
+
+The colour of the ramp matches the section it's leading *into* (warm yellow for chorus, cool blue for intro, grey for outro, etc.) so you can scan the structure at a glance.
+
+**Hover any ramp** to see a tooltip with the underlying numbers — the spectral-flux rise (how dramatic the textural change is) and the LUFS rise (how much louder it gets).
+
+![Section transition tooltip on hover](docs/screenshots/editor_transition_tooltip.png)
+
+##### Per-stem lanes with RMS tint and onset markers
+
+Each stem lane (drums, bass, vocals, other) shows that stem's waveform in its own colour, with two extra layers drawn on top:
+
+- **Onset markers** — short vertical ticks at every detected attack. Drum onsets are colour-coded by class (kick, snare, hihat, etc.) when the drum classifier is shipped; otherwise they share the stem's colour.
+- **Phrase blocks** (vocals and "other" only) — translucent rectangles showing where a singer or melody is actually phrasing, grouped by short pauses. Useful for spotting where a vocal entrance hits.
+- **RMS tint** — a faint coloured background that brightens when the stem is loud and fades when it's quiet. So even at low zoom, you can see that, for example, the vocals are silent in the intro but heavy in the second chorus.
+
+The **solo button** at the left of each lane lets you mute everything except that stem. Click it again to return to the full mix.
+
+##### Curves panel
+
+![Curves panel showing LUFS](docs/screenshots/editor_overview.png)
+
+A single continuous curve drawn underneath the transport, the full width of the song. Pick which one to view from the dropdown:
+
+- **LUFS** — perceived loudness, in the same units as the header. Useful for finding quiet verses and loud drops.
+- **Spectral Centroid** — "brightness" of the sound, in Hertz. Higher = more treble / more shimmer; lower = darker, bassier mix.
+- **Spectral Flux** — how fast the sound is changing moment-to-moment. Spikes line up with hits, drops, and transitions.
+- **Stereo Width** — how spread out the mix is between left and right ear. Mono moments read as zero; wide stereo verbs read high.
+- **Stereo Pan** — how far the centre-of-mass leans left vs. right (-1 = hard left, +1 = hard right, 0 = centred).
+
+![Curves panel — Spectral Centroid (fixed range)](docs/screenshots/editor_curve_centroid.png)
+
+The **fixed range / autoscale** toggle on the right of the panel changes the y-axis. *Fixed range* uses sensible musical defaults (e.g. -40 to 0 dB for LUFS) so curves are comparable across songs. *Autoscale* zooms the y-axis to the song's own min/max — handy when you want to see fine detail in a song that has a narrow dynamic range.
+
+![Curves panel — Spectral Centroid (autoscale)](docs/screenshots/editor_curve_autoscale.png)
+
+A **yellow vertical line** on the curve tracks the playhead in real time as the song plays — so you can immediately see what the loudness, brightness, etc. is doing at the exact moment you're listening to.
+
+##### Curves toggle (collapse + RMS gate)
+
+![Curves panel collapsed](docs/screenshots/editor_curves_collapsed.png)
+
+The little **▾ Curves** button at the left of the panel collapses everything below it. When collapsed, the per-stem RMS tint also disappears from the lanes — so the editor becomes a more traditional, less colourful "just the waveforms" view. Your choice persists across reloads.
+
+##### Looping for practice
+
+Press **I** to set a loop-in point at the cursor, **O** to set the loop-out, and **L** to toggle the loop on/off. The loop region is highlighted on the mix and survives reloads — server-side persistence means even if you close the tab and come back tomorrow, the loop is exactly where you left it. **Esc** clears the loop.
+
+##### Click track
+
+The **Click track: off / on** toggle in the transport plays a metronome lined up with the detected beats and downbeats — handy for confirming the analysis got the tempo right, or for practising along.
+
+##### Zoom
+
+The **Zoom slider** above the transport stretches the timeline horizontally up to 20×, so you can scrub down to individual onset markers, examine ramp shapes in detail, or read every section label without overlap.
 
 ## Operational scripts
 
