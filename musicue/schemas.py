@@ -54,6 +54,12 @@ class BeatEvent(BaseModel):
     timescale: Literal["micro", "meso", "macro"] = "micro"
     frame: int | None = None
     timecode: str | None = None
+    # Pattern-aware fields (populated by detect_patterns at end of analysis).
+    phrase_id: int | None = None
+    phrase_position: int | None = None
+    phrase_length: int | None = None
+    is_fill: bool = False
+    syncopation: float | None = None
 
 
 class SectionEvent(BaseModel):
@@ -121,8 +127,35 @@ class PhraseEvent(BaseModel):
     timecode_end: str | None = None
 
 
+class PhraseBlock(BaseModel):
+    """A repeating phrase unit detected from beat-grid autocorrelation."""
+
+    bar_start: int
+    bar_end: int  # exclusive
+    length: int  # 4, 8, 16, etc.
+    section_label: str
+    confidence: float
+
+
+class FillEvent(BaseModel):
+    """A drum-density fill, typically the bar before a section change."""
+
+    bar: int
+    t_start: float
+    t_end: float
+    density_zscore: float
+    leads_into: str | None = None
+
+
+class Patterns(BaseModel):
+    phrases: list[PhraseBlock] = Field(default_factory=list)
+    fills: list[FillEvent] = Field(default_factory=list)
+    syncopation_per_bar: list[float] = Field(default_factory=list)
+    bar_count: int = 0
+
+
 class AnalysisResult(BaseModel):
-    schema_version: str = "1.2"
+    schema_version: str = "1.3"
     source: SourceInfo
     analysis_config: AnalysisConfig
     stems: dict[str, str]
@@ -135,6 +168,7 @@ class AnalysisResult(BaseModel):
     phrases: dict[str, list[PhraseEvent]] = Field(default_factory=dict)
     curves: dict[str, TimedCurve] = Field(default_factory=dict)
     lufs_integrated: float | None = None
+    patterns: Patterns | None = None
 
 
 class ADSREnvelope(BaseModel):

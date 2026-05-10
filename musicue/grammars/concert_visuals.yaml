@@ -17,6 +17,24 @@ tracks:
         - {when: "section_label == 'drop'",   factor: 1.5}
     envelope: {a: 0.02, d: 0.20, s: 0.0, r: 0.0}
 
+  - name: phrase_pulse
+    type: impulse
+    source: beats
+    filter: "is_phrase_start()"
+    score:
+      base: 1.0
+      multiplier:
+        - {when: "section_label == 'chorus'", factor: 1.5}
+    envelope: {a: 0.03, d: 0.30, s: 0.0, r: 0.0}
+
+  - name: fill_flash
+    type: impulse
+    source: beats
+    filter: "is_fill()"
+    score:
+      base: 1.0
+    envelope: {a: 0.01, d: 0.25, s: 0.0, r: 0.0}
+
   - name: kick
     type: impulse
     source: onsets.drums

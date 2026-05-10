@@ -279,6 +279,12 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
         drop_frame=result.analysis_config.drop_frame,
     )
 
+    # Detect beat patterns and stamp phrase / fill / syncopation fields
+    # onto every BeatEvent. Cheap heuristic; runs in milliseconds.
+    from musicue.analysis.patterns import populate_beat_pattern_fields
+
+    result = populate_beat_pattern_fields(result)
+
     out_json = run_dir / "analysis.json"
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.write_text(result.model_dump_json(indent=2))

@@ -72,6 +72,10 @@ log = logging.getLogger(__name__)
 # match the simple ``field == 'value'`` shape.
 _RE_ANY_LABEL = re.compile(r"any_label\('([^']+)',\s*min_score=([\d.]+)\)")
 _RE_NEAR_DOWNBEAT = re.compile(r"near_downbeat\(([\d.]+)\)")
+_RE_IS_FILL = re.compile(r"is_fill\(\)")
+_RE_EVERY_NTH = re.compile(r"every_nth\((\d+)(?:,\s*offset=(\d+))?\)")
+_RE_IS_PHRASE_START = re.compile(r"is_phrase_start\(\)")
+_RE_IS_PHRASE_END = re.compile(r"is_phrase_end\(\)")
 _RE_FIELD_EQ_STR = re.compile(r"([\w.]+)\s*==\s*'([^']*)'")
 _RE_FIELD_NE_STR = re.compile(r"([\w.]+)\s*!=\s*'([^']*)'")
 _RE_FIELD_EQ_BOOL = re.compile(r"([\w.]+)\s*==\s*(true|false)")
@@ -186,6 +190,35 @@ def evaluate_filter(expr: str | None, event: dict) -> bool:
         field, value = m.group(1), float(m.group(2))
         try:
             return float(_get_dotted(event, field, 0)) < value
+        except (TypeError, ValueError):
+            return False
+
+    # is_fill() — pattern primitive (v0.2c).
+    if _RE_IS_FILL.fullmatch(expr):
+        return bool(event.get("is_fill", False))
+
+    # is_phrase_start() / is_phrase_end() — convenience for phrase_position == 1
+    # and phrase_position == phrase_length.
+    if _RE_IS_PHRASE_START.fullmatch(expr):
+        pos = event.get("phrase_position")
+        return pos == 1
+    if _RE_IS_PHRASE_END.fullmatch(expr):
+        pos = event.get("phrase_position")
+        length = event.get("phrase_length")
+        return pos is not None and length is not None and pos == length
+
+    # every_nth(N, offset=K) — bar-level periodic selector. Matches when the
+    # event's bar (mod N) equals offset (default 0). Used for "every 4th beat",
+    # "every 8 bars from bar 0", etc.
+    m = _RE_EVERY_NTH.fullmatch(expr)
+    if m:
+        n = int(m.group(1))
+        offset = int(m.group(2)) if m.group(2) else 0
+        bar = event.get("bar")
+        if bar is None:
+            return False
+        try:
+            return (int(bar) - offset) % n == 0
         except (TypeError, ValueError):
             return False
 
