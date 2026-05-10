@@ -206,11 +206,34 @@ def _urlopen(url: str, timeout: float = 10.0):  # pragma: no cover - net path
     return urlopen(url, timeout=timeout)
 
 
+_MAX_THUMBNAIL_BYTES = 8 * 1024 * 1024  # 8 MiB hard cap; thumbnails are tiny.
+
+
 def _download_thumbnail(url: str, dest: Path) -> None:
     """Best-effort thumbnail fetch. Swallows errors — the v0.1b Library
-    reads-or-skips, so a missing thumbnail.jpg is not fatal."""
+    reads-or-skips, so a missing thumbnail.jpg is not fatal.
+
+    Goes through the same SSRF guard as the user-supplied URL. yt-dlp may
+    hand us a thumbnail URL pointing at an internal/private address; that
+    would silently exfiltrate metadata from the host network if we fetched
+    it raw. We re-validate, cap the body size, and abandon the fetch on
+    failure rather than partially writing the destination file.
+    """
     try:
+        _validate_url(url)
+        _validate_destination_safe(url)
         with _urlopen(url, timeout=10.0) as r:
-            dest.write_bytes(r.read())
+            # Read up to the cap + 1; any extra byte means the response was
+            # bigger than we're willing to commit to disk, so we abandon.
+            buf = r.read(_MAX_THUMBNAIL_BYTES + 1)
+        if len(buf) > _MAX_THUMBNAIL_BYTES:
+            return
+        dest.write_bytes(buf)
     except Exception:
+        # Cleanest behavior under any error (validation, network, write):
+        # leave no partial thumbnail on disk. The Library reads-or-skips.
+        try:
+            dest.unlink(missing_ok=True)
+        except Exception:
+            pass
         return
