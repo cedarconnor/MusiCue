@@ -17,6 +17,10 @@ _EXPORTERS = {
     "houdini": ("musicue.exporters.houdini", "_houdini.csv"),
     "disguise": ("musicue.exporters.disguise", "_disguise.csv"),
     "unreal": ("musicue.exporters.unreal", "_unreal.json"),
+    "edl": ("musicue.exporters.edl", ".edl"),
+    "fcpxml": ("musicue.exporters.fcpxml", ".fcpxml"),
+    "premiere_markers": ("musicue.exporters.premiere_markers", "_premiere.csv"),
+    "resolve_markers": ("musicue.exporters.resolve_markers", "_resolve.csv"),
 }
 
 

@@ -7,7 +7,11 @@ export type ExportFormat =
   | "osc"
   | "houdini"
   | "disguise"
-  | "unreal";
+  | "unreal"
+  | "edl"
+  | "fcpxml"
+  | "premiere_markers"
+  | "resolve_markers";
 
 export type ExportGrammar =
   | "concert_visuals"
@@ -24,6 +28,7 @@ export interface ExportRequest {
   ticks_per_beat?: number;
   osc_host?: string;
   osc_port?: number;
+  marker_sources?: string[];
 }
 
 /** POSTs the export request and triggers a browser download. */

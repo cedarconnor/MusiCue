@@ -32,6 +32,10 @@ _EXPORTERS: dict[str, tuple[str, str]] = {
     "houdini": ("musicue.exporters.houdini", "_houdini.csv"),
     "disguise": ("musicue.exporters.disguise", "_disguise.csv"),
     "unreal": ("musicue.exporters.unreal", "_unreal.json"),
+    "edl": ("musicue.exporters.edl", ".edl"),
+    "fcpxml": ("musicue.exporters.fcpxml", ".fcpxml"),
+    "premiere_markers": ("musicue.exporters.premiere_markers", "_premiere.csv"),
+    "resolve_markers": ("musicue.exporters.resolve_markers", "_resolve.csv"),
 }
 
 _GRAMMARS: tuple[str, ...] = (
@@ -59,6 +63,7 @@ class ExportRequest(BaseModel):
     ticks_per_beat: int | None = Field(default=None, gt=0, le=10000)
     osc_host: str | None = None
     osc_port: int | None = Field(default=None, gt=0, lt=65536)
+    marker_sources: list[str] | None = None
 
 
 @router.post("/analyses/{analysis_id}/export")
@@ -115,6 +120,15 @@ def export_cuesheet(
             opts["host"] = body.osc_host
         if body.osc_port is not None:
             opts["port"] = body.osc_port
+    if body.format in ("edl", "fcpxml", "premiere_markers", "resolve_markers"):
+        opts["fps"] = (
+            body.fps if body.fps is not None else float(cuesheet.fps)
+        )
+        opts["drop_frame"] = (
+            body.drop_frame if body.fps is not None else bool(cuesheet.drop_frame)
+        )
+        if body.marker_sources:
+            opts["marker_sources"] = set(body.marker_sources)
 
     fname_stem = _sanitize_filename(body.filename)
     download_name = f"{fname_stem}{suffix}"

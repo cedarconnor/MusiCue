@@ -176,6 +176,71 @@ def test_export_csv_includes_frame_number_column(tmp_path):
     assert first_data[frame_idx] == "0"
 
 
+def test_export_edl(tmp_path):
+    _plant_analysis(tmp_path)
+    client = TestClient(create_app(storage_root=tmp_path))
+    r = client.post(
+        f"/api/songs/{SONG_ID}/analyses/{ANALYSIS_ID}/export",
+        json={"format": "edl", "grammar": "concert_visuals", "fps": 24},
+    )
+    assert r.status_code == 200
+    body = r.content.decode("utf-8")
+    assert body.startswith("TITLE: MusiCue cuesheet")
+    assert "FCM: NON-DROP FRAME" in body
+
+
+def test_export_fcpxml(tmp_path):
+    _plant_analysis(tmp_path)
+    client = TestClient(create_app(storage_root=tmp_path))
+    r = client.post(
+        f"/api/songs/{SONG_ID}/analyses/{ANALYSIS_ID}/export",
+        json={"format": "fcpxml", "grammar": "concert_visuals", "fps": 24},
+    )
+    assert r.status_code == 200
+    body = r.content.decode("utf-8")
+    assert body.startswith("<?xml version=")
+
+
+def test_export_premiere_markers(tmp_path):
+    _plant_analysis(tmp_path)
+    client = TestClient(create_app(storage_root=tmp_path))
+    r = client.post(
+        f"/api/songs/{SONG_ID}/analyses/{ANALYSIS_ID}/export",
+        json={"format": "premiere_markers", "grammar": "concert_visuals", "fps": 24},
+    )
+    assert r.status_code == 200
+    body = r.content.decode("utf-8")
+    assert "Marker Name" in body.splitlines()[0]
+
+
+def test_export_resolve_markers(tmp_path):
+    _plant_analysis(tmp_path)
+    client = TestClient(create_app(storage_root=tmp_path))
+    r = client.post(
+        f"/api/songs/{SONG_ID}/analyses/{ANALYSIS_ID}/export",
+        json={"format": "resolve_markers", "grammar": "concert_visuals", "fps": 24},
+    )
+    assert r.status_code == 200
+    # BOM is the easy thing to look for.
+    assert r.content.startswith(b"\xef\xbb\xbf")
+
+
+def test_export_marker_sources_forwarded(tmp_path):
+    _plant_analysis(tmp_path)
+    client = TestClient(create_app(storage_root=tmp_path))
+    # Sections only, no transitions: should produce a smaller EDL.
+    r = client.post(
+        f"/api/songs/{SONG_ID}/analyses/{ANALYSIS_ID}/export",
+        json={
+            "format": "edl",
+            "grammar": "concert_visuals",
+            "fps": 24,
+            "marker_sources": ["section"],
+        },
+    )
+    assert r.status_code == 200
+
+
 def test_export_unknown_format(tmp_path):
     _plant_analysis(tmp_path)
     client = TestClient(create_app(storage_root=tmp_path))
