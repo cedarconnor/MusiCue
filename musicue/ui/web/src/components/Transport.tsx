@@ -6,11 +6,18 @@ interface Props {
   ws: WaveSurfer | null;
   songId: string;
   analysisId: string;
+  clickOn: boolean;
+  onClickOnChange: (v: boolean) => void;
 }
 
-export default function Transport({ ws, songId, analysisId }: Props) {
+export default function Transport({
+  ws,
+  songId,
+  analysisId,
+  clickOn,
+  onClickOnChange,
+}: Props) {
   const [playing, setPlaying] = useState(false);
-  const [clickOn, setClickOn] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [clickLoading, setClickLoading] = useState(false);
@@ -52,16 +59,11 @@ export default function Transport({ ws, songId, analysisId }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [ws]);
 
-  // Mute WaveSurfer when the click track is on. The click WAV produced by
-  // musicue.listen.render_click_track already mixes the source audio (at
-  // 0.4 gain) with the click impulses (at 0.8 gain), so playing both
-  // simultaneously would double the source and bury the clicks. Muting the
-  // WaveSurfer audio while the click WAV plays gives the user a clearly
-  // audible difference between ON and off.
-  useEffect(() => {
-    if (!ws) return;
-    ws.setMuted(clickOn);
-  }, [ws, clickOn]);
+  // Mix-mute decisions live in Timeline (which combines clickOn + solo into
+  // one source of truth). Transport just owns clickOn and the click <audio>
+  // playback; Timeline reads clickOn via a prop and mutes the mix
+  // accordingly. This prevents a Timeline solo-state-change from overriding
+  // Transport's "mute mix while click plays" intent.
 
   // Sync click <audio> element with WaveSurfer's transport.
   useEffect(() => {
@@ -110,7 +112,7 @@ export default function Transport({ ws, songId, analysisId }: Props) {
             }
           }
         }
-        setClickOn(true);
+        onClickOnChange(true);
       } catch (err) {
         console.error("click toggle failed", err);
       } finally {
@@ -118,7 +120,7 @@ export default function Transport({ ws, songId, analysisId }: Props) {
       }
     } else {
       clickAudioRef.current?.pause();
-      setClickOn(false);
+      onClickOnChange(false);
     }
   }
 

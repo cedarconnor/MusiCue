@@ -122,10 +122,21 @@ def test_download_thumbnail_writes_jpg(
         class _Resp:
             def __enter__(self_inner): return self_inner
             def __exit__(self_inner, *a): return None
-            def read(self_inner): return fake_bytes
+            # v0.2 SSRF/size-cap hardening reads with a max-bytes argument.
+            def read(self_inner, n: int | None = None):
+                return fake_bytes
+
         return _Resp()
 
+    import ipaddress
+
     monkeypatch.setattr(ingest, "_urlopen", fake_urlopen)
+    # The SSRF guard does DNS; pin example.com to a public address so the
+    # validator passes without touching the real resolver.
+    monkeypatch.setattr(
+        ingest, "_resolve_hostname",
+        lambda host: [ipaddress.ip_address("93.184.216.34")],
+    )
 
     out = tmp_path / "thumbnail.jpg"
     ingest._download_thumbnail("https://example.com/thumb.jpg", out)
