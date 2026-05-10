@@ -6,6 +6,7 @@ import { AnalysisJSON, Song, getAnalysis, getSong } from "../lib/api";
 import Timeline from "../components/Timeline";
 import Transport from "../components/Transport";
 import MetadataCard from "../components/MetadataCard";
+import CurvesPanel from "../components/CurvesPanel";
 import LabelChipStrip, {
   SelectedAnnotation,
 } from "../components/LabelChipStrip";
@@ -34,6 +35,18 @@ export default function Editor() {
   const loopRef = useRef<LoopState>(EMPTY_LOOP);
   const regionsRef = useRef<RegionsPlugin | null>(null);
   const [selected, setSelected] = useState<SelectedAnnotation>(null);
+  const [curvesCollapsed, setCurvesCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("curves:collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [cursorTime, setCursorTime] = useState<number>(0);
+  const [layout, setLayout] = useState<{ duration: number; pxPerSec: number }>({
+    duration: 0,
+    pxPerSec: 1,
+  });
 
   // Keep loopRef in sync so bindLoopKeys/bindLoopWraparound (which read via
   // a stable getter) always see the latest state.
@@ -104,8 +117,31 @@ export default function Editor() {
         onReady={setWs}
         selected={selected}
         onSelect={setSelected}
+        showRmsTint={!curvesCollapsed}
+        onCursorTime={setCursorTime}
+        onLayout={setLayout}
       />
       <Transport ws={ws} songId={songId} analysisId={analysisId} />
+      <CurvesPanel
+        analysis={analysis}
+        songId={songId}
+        analysisId={analysisId}
+        duration={layout.duration}
+        pxPerSec={layout.pxPerSec}
+        cursorTime={cursorTime}
+        collapsed={curvesCollapsed}
+        onToggleCollapse={() => {
+          setCurvesCollapsed((c) => {
+            const next = !c;
+            try {
+              localStorage.setItem("curves:collapsed", next ? "1" : "0");
+            } catch {
+              // ignore
+            }
+            return next;
+          });
+        }}
+      />
       <div
         style={{
           padding: "4px 16px",

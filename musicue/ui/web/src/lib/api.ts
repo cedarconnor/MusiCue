@@ -85,13 +85,33 @@ export interface PhraseItem {
   labels?: string[];
 }
 
+export interface SectionTransition {
+  t: number;
+  from_section: string;
+  to: string;
+  ramp: {
+    t_start: number;
+    t_end: number;
+    shape: "linear" | "ease_in" | "ease_out" | "ease_in_out";
+  };
+  ramp_evidence?: {
+    spectral_flux_rise?: number;
+    lufs_rise_db?: number;
+  };
+}
+
 export interface AnalysisJSON {
   schema_version?: string;
-  tempo?: { bpm_global?: number; bpm?: number };
+  tempo?: {
+    bpm_global?: number;
+    bpm?: number;
+    bpm_curve?: Array<{ t: number; bpm: number }>;
+  };
   source?: { duration_sec?: number; sample_rate?: number };
   lufs_integrated?: number | null;
   beats?: Array<{ t: number; downbeat: boolean }>;
   sections?: Array<{ start: number; end: number; label: string }>;
+  section_transitions?: SectionTransition[];
   onsets?: Record<string, OnsetItem[]>;
   phrases?: Record<string, PhraseItem[]>;
   curves?: Record<string, { hop_sec: number; values: number[] }>;
