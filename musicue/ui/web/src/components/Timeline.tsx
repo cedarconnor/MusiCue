@@ -10,6 +10,7 @@ import MixLaneOverlay, { OVERLAY_HEIGHT } from "./MixLaneOverlay";
 import { drawAllMixLayers } from "../lib/analysisLayers";
 import OnsetMarkers, { Stem as OverlayStem } from "./OnsetMarkers";
 import PhraseBlocks from "./PhraseBlocks";
+import StemRmsTint from "./StemRmsTint";
 import { SelectedAnnotation } from "./LabelChipStrip";
 
 interface Props {
@@ -19,6 +20,9 @@ interface Props {
   onReady?: (ws: WaveSurfer) => void;
   selected?: SelectedAnnotation;
   onSelect?: (sel: SelectedAnnotation) => void;
+  showRmsTint?: boolean;
+  onCursorTime?: (t: number) => void;
+  onLayout?: (info: { duration: number; pxPerSec: number }) => void;
 }
 
 const STEMS = ["drums", "bass", "vocals", "other"] as const;
@@ -61,6 +65,9 @@ export default function Timeline({
   onReady,
   selected,
   onSelect,
+  showRmsTint,
+  onCursorTime,
+  onLayout,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mixHostRef = useRef<HTMLDivElement>(null);
@@ -99,6 +106,7 @@ export default function Timeline({
     // "No audio loaded" and would otherwise abort the rest of this fn).
     setPps(nextPps);
     setDuration(dur);
+    onLayout?.({ duration: dur, pxPerSec: nextPps });
     try {
       ws.zoom(nextPps);
     } catch {
@@ -184,6 +192,12 @@ export default function Timeline({
       mix.on("play", syncOnPlay);
       mix.on("pause", syncOnPause);
       mix.on("seeking", syncOnSeek);
+      mix.on("audioprocess", () => {
+        onCursorTime?.(mix.getCurrentTime());
+      });
+      mix.on("seeking", () => {
+        onCursorTime?.(mix.getCurrentTime());
+      });
 
       // Stems load in the background; failures don't block the mix.
       await Promise.all(
@@ -311,6 +325,16 @@ export default function Timeline({
                 }}
                 style={{ minWidth: 0 }}
               />
+              {duration > 0 && showRmsTint && analysis.curves?.[`rms_${stem}`] && (
+                <StemRmsTint
+                  stem={stem as OverlayStem}
+                  values={analysis.curves[`rms_${stem}`].values}
+                  hopSec={analysis.curves[`rms_${stem}`].hop_sec}
+                  duration={duration}
+                  pxPerSec={pps}
+                  height={STEM_HEIGHT}
+                />
+              )}
               {duration > 0 && analysis.onsets?.[stem] && (
                 <OnsetMarkers
                   stem={stem as OverlayStem}

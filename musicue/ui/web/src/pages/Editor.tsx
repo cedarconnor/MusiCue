@@ -34,6 +34,14 @@ export default function Editor() {
   const loopRef = useRef<LoopState>(EMPTY_LOOP);
   const regionsRef = useRef<RegionsPlugin | null>(null);
   const [selected, setSelected] = useState<SelectedAnnotation>(null);
+  const [curvesCollapsed, setCurvesCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("curves:collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [cursorTime, setCursorTime] = useState<number>(0);
 
   // Keep loopRef in sync so bindLoopKeys/bindLoopWraparound (which read via
   // a stable getter) always see the latest state.
@@ -104,6 +112,8 @@ export default function Editor() {
         onReady={setWs}
         selected={selected}
         onSelect={setSelected}
+        showRmsTint={!curvesCollapsed}
+        onCursorTime={setCursorTime}
       />
       <Transport ws={ws} songId={songId} analysisId={analysisId} />
       <div
