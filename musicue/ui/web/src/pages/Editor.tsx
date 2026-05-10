@@ -17,6 +17,7 @@ import {
   bindLoopKeys,
   bindLoopWraparound,
   loadLoop,
+  syncLoopFromServer,
 } from "../lib/loop";
 
 export default function Editor() {
@@ -46,6 +47,11 @@ export default function Editor() {
     setAnalysis(null);
     setError(null);
     setLoop(loadLoop(songId, analysisId));
+    // Server-canonical refresh: if the DB has a different loop than the
+    // localStorage cache, server wins.
+    syncLoopFromServer(songId, analysisId).then((srv) => {
+      if (srv) setLoop(srv);
+    });
     Promise.all([getSong(songId), getAnalysis(songId, analysisId)])
       .then(([s, a]) => {
         setSong(s);

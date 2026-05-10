@@ -1,5 +1,6 @@
 import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.esm.js";
 import type WaveSurfer from "wavesurfer.js";
+import { LoopState as ServerLoop, getLoop, putLoop } from "./api";
 
 export type LoopState = {
   in: number | null;
@@ -9,7 +10,20 @@ export type LoopState = {
 
 export const EMPTY_LOOP: LoopState = { in: null, out: null, enabled: false };
 
+function fromServer(s: ServerLoop | null): LoopState {
+  if (!s) return { ...EMPTY_LOOP };
+  return { in: s.loop_in, out: s.loop_out, enabled: s.enabled };
+}
+
+function toServer(s: LoopState): ServerLoop | null {
+  if (s.in == null || s.out == null) return null;
+  return { loop_in: s.in, loop_out: s.out, enabled: s.enabled };
+}
+
 export function loadLoop(songId: string, analysisId: string): LoopState {
+  // Sync localStorage read for instant render. Editor.tsx calls
+  // ``syncLoopFromServer`` after this to overwrite with the canonical
+  // value if the server has one.
   try {
     const raw = localStorage.getItem(`loop:${songId}:${analysisId}`);
     if (!raw) return { ...EMPTY_LOOP };
@@ -19,19 +33,47 @@ export function loadLoop(songId: string, analysisId: string): LoopState {
   }
 }
 
+export async function syncLoopFromServer(
+  songId: string,
+  analysisId: string,
+): Promise<LoopState | null> {
+  try {
+    const srv = await getLoop(songId, analysisId);
+    return fromServer(srv);
+  } catch {
+    return null;
+  }
+}
+
+const _putTimers: Map<string, number> = new Map();
+
 export function saveLoop(
   songId: string,
   analysisId: string,
   state: LoopState,
 ): void {
+  // localStorage stays as a same-session fast path; server is canonical.
   try {
     localStorage.setItem(
       `loop:${songId}:${analysisId}`,
       JSON.stringify(state),
     );
   } catch {
-    // Quota exceeded or storage disabled. Loop is best-effort.
+    // Quota exceeded or storage disabled.
   }
+  const key = `${songId}:${analysisId}`;
+  const prev = _putTimers.get(key);
+  if (prev) window.clearTimeout(prev);
+  const body = toServer(state);
+  if (body == null) return; // No DELETE route in v0.1b; skip.
+  const t = window.setTimeout(() => {
+    putLoop(songId, analysisId, body).catch(() => {
+      // Best-effort: localStorage still reflects intent; next session
+      // will resync from server.
+    });
+    _putTimers.delete(key);
+  }, 500);
+  _putTimers.set(key, t);
 }
 
 export function attachRegions(ws: WaveSurfer): RegionsPlugin {
