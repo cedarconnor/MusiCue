@@ -19,3 +19,6 @@ MusicTests/
 musicue-webui-design.md
 node_modules/
 musicue/ui/static/
+vendor/
+.env
+
