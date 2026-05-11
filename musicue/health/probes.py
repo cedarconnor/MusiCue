@@ -265,3 +265,88 @@ def probe_demucs() -> ComponentStatus:
         version=version,
         cache_path=str(ckpt_dir),
     )
+
+
+def _allin1_cache_dir() -> Path:
+    return Path.home() / ".cache" / "all-in-one"
+
+
+def _clap_cache_dirs() -> list[Path]:
+    return [
+        Path.home() / ".cache" / "clap",
+        Path.home() / ".cache" / "musicue" / "clap",
+    ]
+
+
+@_wrap("allin1")
+def probe_allin1() -> ComponentStatus:
+    import importlib
+
+    try:
+        importlib.import_module("allin1")
+    except ImportError as e:
+        return ComponentStatus(
+            name="allin1",
+            state=ComponentState.MISSING,
+            required=False,
+            detail=(
+                f"allin1 not importable: {e}. Beat detection will use the "
+                "librosa fallback (no section detection)."
+            ),
+            remediation="uv pip install allin1 (may fail on Windows; see FOLLOWUPS.md)",
+        )
+
+    cache = _allin1_cache_dir()
+    has_ckpt = cache.exists() and any(cache.iterdir())
+    if not has_ckpt:
+        return ComponentStatus(
+            name="allin1",
+            state=ComponentState.MISSING,
+            required=False,
+            detail=f"No checkpoints found in {cache}.",
+            cache_path=str(cache),
+            remediation="Run install.bat — first analyze call triggers the download.",
+        )
+
+    return ComponentStatus(
+        name="allin1",
+        state=ComponentState.READY,
+        required=False,
+        version=_pkg_version_or_none("allin1"),
+        cache_path=str(cache),
+    )
+
+
+@_wrap("clap")
+def probe_clap() -> ComponentStatus:
+    import importlib
+
+    try:
+        importlib.import_module("laion_clap")
+    except ImportError as e:
+        return ComponentStatus(
+            name="clap",
+            state=ComponentState.MISSING,
+            required=False,
+            detail=f"laion_clap not importable: {e}",
+            remediation='uv pip install -e ".[clap]"',
+        )
+
+    candidates = _clap_cache_dirs()
+    for d in candidates:
+        if d.exists() and any(d.glob("*.pt")):
+            return ComponentStatus(
+                name="clap",
+                state=ComponentState.READY,
+                required=False,
+                version=_pkg_version_or_none("laion-clap"),
+                cache_path=str(d),
+            )
+
+    return ComponentStatus(
+        name="clap",
+        state=ComponentState.MISSING,
+        required=False,
+        detail=f"No CLAP checkpoint .pt found in any of: {[str(d) for d in candidates]}",
+        remediation="Run install.bat — fetch_models.py triggers the CLAP download.",
+    )

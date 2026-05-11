@@ -242,6 +242,72 @@ def test_probe_demucs_missing_when_import_fails(monkeypatch):
     assert status.state == ComponentState.MISSING
 
 
+def test_probe_allin1_ready(monkeypatch, tmp_path):
+    import sys as _sys
+
+    fake = type("M", (), {})()
+    monkeypatch.setitem(_sys.modules, "allin1", fake)
+    monkeypatch.setattr(
+        probes, "_pkg_version_or_none", lambda name: "1.1.0"
+    )
+    (tmp_path / "ckpt.pt").write_bytes(b"x")
+    monkeypatch.setattr(probes, "_allin1_cache_dir", lambda: tmp_path)
+    status = probes.probe_allin1()
+    assert status.state == ComponentState.READY
+    assert status.required is False
+
+
+def test_probe_allin1_missing_when_import_fails(monkeypatch):
+    import sys as _sys
+
+    monkeypatch.setitem(_sys.modules, "allin1", None)
+    status = probes.probe_allin1()
+    assert status.state == ComponentState.MISSING
+    assert "librosa fallback" in (status.detail or "")
+
+
+def test_probe_allin1_missing_when_no_checkpoint(monkeypatch, tmp_path):
+    import sys as _sys
+
+    fake = type("M", (), {})()
+    monkeypatch.setitem(_sys.modules, "allin1", fake)
+    monkeypatch.setattr(probes, "_allin1_cache_dir", lambda: tmp_path)
+    status = probes.probe_allin1()
+    assert status.state == ComponentState.MISSING
+
+
+def test_probe_clap_ready(monkeypatch, tmp_path):
+    import sys as _sys
+
+    fake = type("M", (), {})()
+    monkeypatch.setitem(_sys.modules, "laion_clap", fake)
+    monkeypatch.setattr(
+        probes, "_pkg_version_or_none", lambda name: "1.1.6"
+    )
+    (tmp_path / "630k-audioset-best.pt").write_bytes(b"x")
+    monkeypatch.setattr(probes, "_clap_cache_dirs", lambda: [tmp_path])
+    status = probes.probe_clap()
+    assert status.state == ComponentState.READY
+
+
+def test_probe_clap_missing_when_no_weights(monkeypatch, tmp_path):
+    import sys as _sys
+
+    fake = type("M", (), {})()
+    monkeypatch.setitem(_sys.modules, "laion_clap", fake)
+    monkeypatch.setattr(probes, "_clap_cache_dirs", lambda: [tmp_path])
+    status = probes.probe_clap()
+    assert status.state == ComponentState.MISSING
+
+
+def test_probe_clap_missing_when_import_fails(monkeypatch):
+    import sys as _sys
+
+    monkeypatch.setitem(_sys.modules, "laion_clap", None)
+    status = probes.probe_clap()
+    assert status.state == ComponentState.MISSING
+
+
 def test_probe_cuda_missing_when_unavailable(monkeypatch):
     fake_torch = type(
         "M",
