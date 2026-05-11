@@ -193,8 +193,8 @@ def test_probe_demucs_ready_when_all_checkpoints_present(monkeypatch, tmp_path):
     monkeypatch.setattr(
         probes, "_pkg_version_or_none", lambda name: "4.0.1"
     )
-    for sha in probes._DEMUCS_FT_SHAS:
-        (tmp_path / f"{sha}-something.th").write_bytes(b"x")
+    for i in range(probes._DEMUCS_FT_EXPECTED_COUNT):
+        (tmp_path / f"abc{i}-hash.th").write_bytes(b"x")
     monkeypatch.setattr(
         probes, "_torch_hub_checkpoint_dir", lambda: tmp_path
     )
@@ -210,8 +210,7 @@ def test_probe_demucs_degraded_when_partial(monkeypatch, tmp_path):
     monkeypatch.setattr(
         probes, "_pkg_version_or_none", lambda name: "4.0.1"
     )
-    sha = next(iter(probes._DEMUCS_FT_SHAS))
-    (tmp_path / f"{sha}-x.th").write_bytes(b"x")
+    (tmp_path / "abc-only.th").write_bytes(b"x")
     monkeypatch.setattr(
         probes, "_torch_hub_checkpoint_dir", lambda: tmp_path
     )

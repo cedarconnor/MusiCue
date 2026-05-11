@@ -196,14 +196,7 @@ def probe_basic_pitch() -> ComponentStatus:
     )
 
 
-_DEMUCS_FT_SHAS: frozenset[str] = frozenset(
-    {
-        "955717e8",
-        "f7e0c4bc",
-        "75fc33f5",
-        "d12395a8",
-    }
-)
+_DEMUCS_FT_EXPECTED_COUNT: int = 4
 
 
 def _torch_hub_checkpoint_dir() -> Path:
@@ -226,33 +219,29 @@ def probe_demucs() -> ComponentStatus:
         )
 
     ckpt_dir = _torch_hub_checkpoint_dir()
-    found_shas: set[str] = set()
-    if ckpt_dir.exists():
-        for entry in ckpt_dir.iterdir():
-            for sha in _DEMUCS_FT_SHAS:
-                if entry.name.startswith(sha):
-                    found_shas.add(sha)
+    ckpt_files = list(ckpt_dir.glob("*.th")) if ckpt_dir.exists() else []
+    count = len(ckpt_files)
 
     version = _pkg_version_or_none("demucs")
-    if not found_shas:
+    if count == 0:
         return ComponentStatus(
             name="demucs",
             state=ComponentState.MISSING,
             required=True,
             version=version,
-            detail=f"No htdemucs_ft checkpoints found in {ckpt_dir}",
+            detail=f"No .th checkpoints found in {ckpt_dir}",
             cache_path=str(ckpt_dir),
             remediation="Run install.bat — it triggers the model download.",
         )
 
-    if found_shas != _DEMUCS_FT_SHAS:
+    if count < _DEMUCS_FT_EXPECTED_COUNT:
         return ComponentStatus(
             name="demucs",
             state=ComponentState.DEGRADED,
             required=True,
             version=version,
             detail=(
-                f"Only {len(found_shas)}/4 htdemucs_ft checkpoints present. "
+                f"Only {count}/{_DEMUCS_FT_EXPECTED_COUNT} checkpoints present. "
                 "Some stems will fall back to single-model inference."
             ),
             cache_path=str(ckpt_dir),
