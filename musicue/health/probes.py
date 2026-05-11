@@ -159,3 +159,38 @@ def probe_ffmpeg() -> ComponentStatus:
         required=True,
         cache_path=path,
     )
+
+
+def _pkg_version_or_none(pkg_name: str) -> str | None:
+    try:
+        from importlib.metadata import PackageNotFoundError
+        from importlib.metadata import version as _v
+
+        return _v(pkg_name)
+    except PackageNotFoundError:
+        return None
+    except Exception:
+        return None
+
+
+@_wrap("basic_pitch")
+def probe_basic_pitch() -> ComponentStatus:
+    import importlib
+
+    try:
+        importlib.import_module("basic_pitch")
+    except ImportError as e:
+        return ComponentStatus(
+            name="basic_pitch",
+            state=ComponentState.MISSING,
+            required=True,
+            detail=f"basic_pitch not importable: {e}",
+            remediation="uv pip install basic-pitch",
+        )
+
+    return ComponentStatus(
+        name="basic_pitch",
+        state=ComponentState.READY,
+        required=True,
+        version=_pkg_version_or_none("basic-pitch"),
+    )

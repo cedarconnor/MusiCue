@@ -162,6 +162,29 @@ def test_probe_ffmpeg_missing(monkeypatch):
     assert status.required is True
 
 
+def test_probe_basic_pitch_ready(monkeypatch):
+    import sys as _sys
+
+    fake = type("M", (), {})()
+    monkeypatch.setitem(_sys.modules, "basic_pitch", fake)
+    monkeypatch.setattr(
+        probes, "_pkg_version_or_none", lambda name: "0.4.0"
+    )
+    status = probes.probe_basic_pitch()
+    assert status.state == ComponentState.READY
+    assert status.version == "0.4.0"
+    assert status.required is True
+
+
+def test_probe_basic_pitch_missing(monkeypatch):
+    import sys as _sys
+
+    monkeypatch.setitem(_sys.modules, "basic_pitch", None)
+    status = probes.probe_basic_pitch()
+    assert status.state == ComponentState.MISSING
+    assert "basic-pitch" in (status.remediation or "")
+
+
 def test_probe_cuda_missing_when_unavailable(monkeypatch):
     fake_torch = type(
         "M",
