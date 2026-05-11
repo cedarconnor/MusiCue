@@ -146,6 +146,22 @@ def test_probe_cuda_ready(monkeypatch):
     assert status.required is False
 
 
+def test_probe_ffmpeg_ready(monkeypatch):
+    monkeypatch.setattr(
+        probes.shutil, "which", lambda cmd: r"C:\tools\ffmpeg.exe"
+    )
+    status = probes.probe_ffmpeg()
+    assert status.state == ComponentState.READY
+    assert status.cache_path == r"C:\tools\ffmpeg.exe"
+
+
+def test_probe_ffmpeg_missing(monkeypatch):
+    monkeypatch.setattr(probes.shutil, "which", lambda cmd: None)
+    status = probes.probe_ffmpeg()
+    assert status.state == ComponentState.MISSING
+    assert status.required is True
+
+
 def test_probe_cuda_missing_when_unavailable(monkeypatch):
     fake_torch = type(
         "M",

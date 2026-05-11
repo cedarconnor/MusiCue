@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import sys
 from functools import wraps
 from pathlib import Path
@@ -138,4 +139,23 @@ def probe_cuda() -> ComponentStatus:
         state=ComponentState.READY,
         required=False,
         detail=f"GPU: {name}",
+    )
+
+
+@_wrap("ffmpeg")
+def probe_ffmpeg() -> ComponentStatus:
+    path = shutil.which("ffmpeg")
+    if path is None:
+        return ComponentStatus(
+            name="ffmpeg",
+            state=ComponentState.MISSING,
+            required=True,
+            detail="ffmpeg.exe not found on PATH. Required for audio decoding.",
+            remediation="Run install.bat (downloads a portable ffmpeg into vendor/).",
+        )
+    return ComponentStatus(
+        name="ffmpeg",
+        state=ComponentState.READY,
+        required=True,
+        cache_path=path,
     )
