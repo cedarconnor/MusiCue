@@ -70,3 +70,72 @@ def probe_python_venv() -> ComponentStatus:
         version=version,
         cache_path=str(prefix),
     )
+
+
+@_wrap("torch")
+def probe_torch() -> ComponentStatus:
+    import importlib
+
+    try:
+        torch = importlib.import_module("torch")
+    except ImportError as e:
+        return ComponentStatus(
+            name="torch",
+            state=ComponentState.MISSING,
+            required=True,
+            detail=f"torch not importable: {e}",
+            remediation="Run install.bat (installs torch 2.2+ with CUDA 12.1).",
+        )
+
+    version = getattr(torch, "__version__", "unknown")
+    major_minor = version.split(".")[:2]
+    try:
+        if (int(major_minor[0]), int(major_minor[1])) < (2, 2):
+            return ComponentStatus(
+                name="torch",
+                state=ComponentState.DEGRADED,
+                required=True,
+                version=version,
+                detail=f"torch {version} is older than the recommended 2.2+",
+            )
+    except (ValueError, IndexError):
+        pass
+
+    return ComponentStatus(
+        name="torch",
+        state=ComponentState.READY,
+        required=True,
+        version=version,
+    )
+
+
+@_wrap("cuda")
+def probe_cuda() -> ComponentStatus:
+    import importlib
+
+    try:
+        torch = importlib.import_module("torch")
+    except ImportError:
+        return ComponentStatus(
+            name="cuda",
+            state=ComponentState.MISSING,
+            required=False,
+            detail="torch is not installed, so CUDA cannot be detected.",
+        )
+
+    if not torch.cuda.is_available():
+        return ComponentStatus(
+            name="cuda",
+            state=ComponentState.MISSING,
+            required=False,
+            detail="No CUDA-capable GPU detected. The pipeline will run on CPU (slower).",
+            remediation="Install the CUDA-enabled torch wheel and an NVIDIA driver.",
+        )
+
+    name = torch.cuda.get_device_name(0)
+    return ComponentStatus(
+        name="cuda",
+        state=ComponentState.READY,
+        required=False,
+        detail=f"GPU: {name}",
+    )

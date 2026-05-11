@@ -92,3 +92,75 @@ def test_probe_python_venv_degraded_on_old_python(monkeypatch):
     status = probes.probe_python_venv()
     assert status.state == ComponentState.DEGRADED
     assert "3.11" in (status.detail or "")
+
+
+def test_probe_torch_ready(monkeypatch):
+    fake_torch = type("M", (), {"__version__": "2.2.1"})()
+    monkeypatch.setitem(
+        __import__("sys").modules, "torch", fake_torch
+    )
+    status = probes.probe_torch()
+    assert status.state == ComponentState.READY
+    assert status.version == "2.2.1"
+
+
+def test_probe_torch_missing_when_import_fails(monkeypatch):
+    import sys as _sys
+
+    monkeypatch.setitem(_sys.modules, "torch", None)
+    status = probes.probe_torch()
+    assert status.state == ComponentState.MISSING
+
+
+def test_probe_torch_degraded_on_old_version(monkeypatch):
+    fake_torch = type("M", (), {"__version__": "1.13.0"})()
+    monkeypatch.setitem(
+        __import__("sys").modules, "torch", fake_torch
+    )
+    status = probes.probe_torch()
+    assert status.state == ComponentState.DEGRADED
+    assert "2.2" in (status.detail or "")
+
+
+def test_probe_cuda_ready(monkeypatch):
+    fake_torch = type(
+        "M",
+        (),
+        {
+            "cuda": type(
+                "C",
+                (),
+                {
+                    "is_available": staticmethod(lambda: True),
+                    "get_device_name": staticmethod(lambda i: "NVIDIA RTX 4090"),
+                },
+            )()
+        },
+    )()
+    monkeypatch.setitem(
+        __import__("sys").modules, "torch", fake_torch
+    )
+    status = probes.probe_cuda()
+    assert status.state == ComponentState.READY
+    assert "RTX 4090" in (status.detail or "")
+    assert status.required is False
+
+
+def test_probe_cuda_missing_when_unavailable(monkeypatch):
+    fake_torch = type(
+        "M",
+        (),
+        {
+            "cuda": type(
+                "C",
+                (),
+                {"is_available": staticmethod(lambda: False)},
+            )()
+        },
+    )()
+    monkeypatch.setitem(
+        __import__("sys").modules, "torch", fake_torch
+    )
+    status = probes.probe_cuda()
+    assert status.state == ComponentState.MISSING
+    assert "GPU" in (status.detail or "")
