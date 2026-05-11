@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
+from musicue.health.readiness import collect_report
 from musicue.ui.jobs import JobManager
 from musicue.ui.storage import UIStorage
 
@@ -35,6 +36,8 @@ def create_app(storage_root: Path | None = None) -> FastAPI:
     app.state.pool = AnalyzePool(max_workers=1)
     app.state.jobs.register_cancel_hook(app.state.pool.cancel)
 
+    app.state.readiness_report = collect_report()
+
     @app.on_event("shutdown")
     def _shutdown_pool() -> None:
         app.state.pool.shutdown(wait=False)
@@ -46,6 +49,7 @@ def create_app(storage_root: Path | None = None) -> FastAPI:
     from musicue.ui.routes import analyses as analyses_routes
     from musicue.ui.routes import click as click_routes
     from musicue.ui.routes import export as export_routes
+    from musicue.ui.routes import health as health_routes
     from musicue.ui.routes import jobs as jobs_routes
     from musicue.ui.routes import library as library_routes
     from musicue.ui.routes import songs as songs_routes
@@ -55,6 +59,7 @@ def create_app(storage_root: Path | None = None) -> FastAPI:
     app.include_router(click_routes.router)
     app.include_router(library_routes.router)
     app.include_router(export_routes.router)
+    app.include_router(health_routes.router)
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
