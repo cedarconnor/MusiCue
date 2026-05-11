@@ -47,16 +47,28 @@ Write-Step "Creating .venv with Python 3.11"
 if ($LASTEXITCODE -ne 0) { throw "uv venv failed (exit $LASTEXITCODE)" }
 
 # -----------------------------------------------------------------------------
-# 3. Core install (hard fail)
+# 3. PyTorch with CUDA (must come before core install so dependents see it)
+# -----------------------------------------------------------------------------
+# Pin a known-good CUDA 12.1 build. We use --index-url (not --extra-index-url)
+# so uv resolves torch exclusively from PyTorch's wheel index; otherwise uv
+# happily picks a higher-versioned CPU-only torch wheel from PyPI.
+Write-Step "Installing PyTorch with CUDA 12.1"
+& uv pip install `
+    "torch==2.5.1+cu121" `
+    "torchaudio==2.5.1+cu121" `
+    "torchvision==0.20.1+cu121" `
+    --index-url https://download.pytorch.org/whl/cu121
+if ($LASTEXITCODE -ne 0) { throw "PyTorch CUDA install failed (exit $LASTEXITCODE)" }
+
+# -----------------------------------------------------------------------------
+# 4. Core install (hard fail)
 # -----------------------------------------------------------------------------
 Write-Step "Installing core dependencies (this may take several minutes)"
-& uv pip install -e ".[dev,ui,midi,osc]" basic-pitch `
-    --extra-index-url https://download.pytorch.org/whl/cu121 `
-    --index-strategy unsafe-best-match
+& uv pip install -e ".[dev,ui,midi,osc]" basic-pitch
 if ($LASTEXITCODE -ne 0) { throw "Core install failed (exit $LASTEXITCODE)" }
 
 # -----------------------------------------------------------------------------
-# 4. CLAP (soft warn)
+# 5. CLAP (soft warn)
 # -----------------------------------------------------------------------------
 Write-Step "Installing CLAP (optional)"
 & uv pip install -e ".[clap]"
@@ -65,7 +77,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # -----------------------------------------------------------------------------
-# 5. All-In-One (soft warn — historically painful on Windows)
+# 6. All-In-One (soft warn — historically painful on Windows)
 # -----------------------------------------------------------------------------
 Write-Step "Installing All-In-One (optional)"
 & uv pip install allin1
@@ -74,7 +86,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # -----------------------------------------------------------------------------
-# 6. ffmpeg
+# 7. ffmpeg
 # -----------------------------------------------------------------------------
 Write-Step "Checking for ffmpeg"
 $ffmpegPath = (Get-Command ffmpeg -ErrorAction SilentlyContinue)
@@ -89,14 +101,14 @@ if ($null -eq $ffmpegPath) {
 }
 
 # -----------------------------------------------------------------------------
-# 7. .env setup
+# 8. .env setup
 # -----------------------------------------------------------------------------
 Write-Step "Setting up .env"
 & .venv\Scripts\python.exe scripts\setup_env.py
 if ($LASTEXITCODE -ne 0) { Soft-Warn "env" ".env setup returned non-zero." }
 
 # -----------------------------------------------------------------------------
-# 8. Model prefetch (soft warn per model)
+# 9. Model prefetch (soft warn per model)
 # -----------------------------------------------------------------------------
 Write-Step "Prefetching model weights"
 & .venv\Scripts\python.exe scripts\fetch_models.py
@@ -105,7 +117,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # -----------------------------------------------------------------------------
-# 9. Final readiness table
+# 10. Final readiness table
 # -----------------------------------------------------------------------------
 Write-Step "Final readiness check"
 & .venv\Scripts\python.exe -m musicue.health.readiness --print-table
