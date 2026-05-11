@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
+from musicue.health.readiness import collect_report
 from musicue.ui.jobs import JobManager
 from musicue.ui.storage import UIStorage
 
@@ -34,6 +35,8 @@ def create_app(storage_root: Path | None = None) -> FastAPI:
 
     app.state.pool = AnalyzePool(max_workers=1)
     app.state.jobs.register_cancel_hook(app.state.pool.cancel)
+
+    app.state.readiness_report = collect_report()
 
     @app.on_event("shutdown")
     def _shutdown_pool() -> None:
