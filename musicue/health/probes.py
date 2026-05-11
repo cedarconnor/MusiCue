@@ -194,3 +194,74 @@ def probe_basic_pitch() -> ComponentStatus:
         required=True,
         version=_pkg_version_or_none("basic-pitch"),
     )
+
+
+_DEMUCS_FT_SHAS: frozenset[str] = frozenset(
+    {
+        "955717e8",
+        "f7e0c4bc",
+        "75fc33f5",
+        "d12395a8",
+    }
+)
+
+
+def _torch_hub_checkpoint_dir() -> Path:
+    return Path.home() / ".cache" / "torch" / "hub" / "checkpoints"
+
+
+@_wrap("demucs")
+def probe_demucs() -> ComponentStatus:
+    import importlib
+
+    try:
+        importlib.import_module("demucs")
+    except ImportError as e:
+        return ComponentStatus(
+            name="demucs",
+            state=ComponentState.MISSING,
+            required=True,
+            detail=f"demucs not importable: {e}",
+            remediation="uv pip install demucs",
+        )
+
+    ckpt_dir = _torch_hub_checkpoint_dir()
+    found_shas: set[str] = set()
+    if ckpt_dir.exists():
+        for entry in ckpt_dir.iterdir():
+            for sha in _DEMUCS_FT_SHAS:
+                if entry.name.startswith(sha):
+                    found_shas.add(sha)
+
+    version = _pkg_version_or_none("demucs")
+    if not found_shas:
+        return ComponentStatus(
+            name="demucs",
+            state=ComponentState.MISSING,
+            required=True,
+            version=version,
+            detail=f"No htdemucs_ft checkpoints found in {ckpt_dir}",
+            cache_path=str(ckpt_dir),
+            remediation="Run install.bat — it triggers the model download.",
+        )
+
+    if found_shas != _DEMUCS_FT_SHAS:
+        return ComponentStatus(
+            name="demucs",
+            state=ComponentState.DEGRADED,
+            required=True,
+            version=version,
+            detail=(
+                f"Only {len(found_shas)}/4 htdemucs_ft checkpoints present. "
+                "Some stems will fall back to single-model inference."
+            ),
+            cache_path=str(ckpt_dir),
+        )
+
+    return ComponentStatus(
+        name="demucs",
+        state=ComponentState.READY,
+        required=True,
+        version=version,
+        cache_path=str(ckpt_dir),
+    )

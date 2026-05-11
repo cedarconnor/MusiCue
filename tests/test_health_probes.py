@@ -185,6 +185,63 @@ def test_probe_basic_pitch_missing(monkeypatch):
     assert "basic-pitch" in (status.remediation or "")
 
 
+def test_probe_demucs_ready_when_all_checkpoints_present(monkeypatch, tmp_path):
+    import sys as _sys
+
+    fake = type("M", (), {})()
+    monkeypatch.setitem(_sys.modules, "demucs", fake)
+    monkeypatch.setattr(
+        probes, "_pkg_version_or_none", lambda name: "4.0.1"
+    )
+    for sha in probes._DEMUCS_FT_SHAS:
+        (tmp_path / f"{sha}-something.th").write_bytes(b"x")
+    monkeypatch.setattr(
+        probes, "_torch_hub_checkpoint_dir", lambda: tmp_path
+    )
+    status = probes.probe_demucs()
+    assert status.state == ComponentState.READY
+
+
+def test_probe_demucs_degraded_when_partial(monkeypatch, tmp_path):
+    import sys as _sys
+
+    fake = type("M", (), {})()
+    monkeypatch.setitem(_sys.modules, "demucs", fake)
+    monkeypatch.setattr(
+        probes, "_pkg_version_or_none", lambda name: "4.0.1"
+    )
+    sha = next(iter(probes._DEMUCS_FT_SHAS))
+    (tmp_path / f"{sha}-x.th").write_bytes(b"x")
+    monkeypatch.setattr(
+        probes, "_torch_hub_checkpoint_dir", lambda: tmp_path
+    )
+    status = probes.probe_demucs()
+    assert status.state == ComponentState.DEGRADED
+
+
+def test_probe_demucs_missing_when_no_checkpoints(monkeypatch, tmp_path):
+    import sys as _sys
+
+    fake = type("M", (), {})()
+    monkeypatch.setitem(_sys.modules, "demucs", fake)
+    monkeypatch.setattr(
+        probes, "_pkg_version_or_none", lambda name: "4.0.1"
+    )
+    monkeypatch.setattr(
+        probes, "_torch_hub_checkpoint_dir", lambda: tmp_path
+    )
+    status = probes.probe_demucs()
+    assert status.state == ComponentState.MISSING
+
+
+def test_probe_demucs_missing_when_import_fails(monkeypatch):
+    import sys as _sys
+
+    monkeypatch.setitem(_sys.modules, "demucs", None)
+    status = probes.probe_demucs()
+    assert status.state == ComponentState.MISSING
+
+
 def test_probe_cuda_missing_when_unavailable(monkeypatch):
     fake_torch = type(
         "M",
