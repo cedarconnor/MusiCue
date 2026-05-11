@@ -9,6 +9,7 @@ import importlib
 import re
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -145,8 +146,19 @@ def export_cuesheet(
         Path(tmp.name).unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"export failed: {e}") from e
 
+    # Starlette's FileResponse(filename=...) only emits the RFC 5987 extended
+    # form (filename*=utf-8''...), which not every download flow parses. We
+    # set Content-Disposition explicitly with BOTH the legacy and extended
+    # forms so the browser (or our fetch-blob handler) always sees a usable
+    # filename and doesn't fall back to ".bin".
+    quoted = quote(download_name)
     return FileResponse(
         path=tmp.name,
         media_type="application/octet-stream",
-        filename=download_name,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{download_name}"; '
+                f"filename*=utf-8''{quoted}"
+            )
+        },
     )
