@@ -135,6 +135,24 @@ export default function Editor() {
             onClickOnChange={setClickOn}
           />
         </div>
+        <a
+          href={`/api/songs/${songId}/analyses/${analysisId}/stems.zip`}
+          download
+          title="Download all four separated stems (drums, bass, vocals, other) as a single .zip — useful for importing into another DAW or audio editor for verification."
+          style={{
+            background: "#1a1a1a",
+            color: "#bbb",
+            border: "1px solid #333",
+            padding: "6px 14px",
+            borderRadius: 4,
+            cursor: "pointer",
+            fontSize: 13,
+            marginRight: 8,
+            textDecoration: "none",
+          }}
+        >
+          Stems (.zip) ↓
+        </a>
         <button
           onClick={() => setExportOpen(true)}
           style={{

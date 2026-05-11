@@ -263,6 +263,32 @@ def test_export_unknown_grammar(tmp_path):
     assert "unknown grammar" in r.json()["detail"].lower()
 
 
+def test_export_content_disposition_has_both_filename_forms(tmp_path):
+    """Regression: Starlette's default FileResponse(filename=...) emits ONLY
+    the RFC 5987 extended form (filename*=utf-8''...). Our frontend regex
+    historically looked only for the legacy form (filename="..."), so every
+    download landed as `<name>.bin`. We now set the header explicitly with
+    BOTH forms so any reasonable parser finds the filename + extension.
+    """
+    _plant_analysis(tmp_path)
+    client = TestClient(create_app(storage_root=tmp_path))
+    r = client.post(
+        f"/api/songs/{SONG_ID}/analyses/{ANALYSIS_ID}/export",
+        json={
+            "format": "after_effects",
+            "grammar": "concert_visuals",
+            "filename": "demo",
+            "fps": 24.0,
+        },
+    )
+    assert r.status_code == 200
+    cd = r.headers.get("content-disposition", "")
+    # Legacy form: filename="demo.jsx"
+    assert 'filename="demo.jsx"' in cd
+    # Extended form: filename*=utf-8''demo.jsx (URL-encoded, but `.` is safe)
+    assert "filename*=utf-8''demo.jsx" in cd
+
+
 def test_export_missing_analysis(tmp_path):
     # Don't plant anything.
     client = TestClient(create_app(storage_root=tmp_path))

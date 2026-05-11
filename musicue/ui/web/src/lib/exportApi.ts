@@ -31,6 +31,28 @@ export interface ExportRequest {
   marker_sources?: string[];
 }
 
+/**
+ * Pull a filename out of a Content-Disposition header. Handles both forms:
+ *   - `filename="cuesheet.jsx"` (legacy)
+ *   - `filename*=utf-8''cuesheet.jsx` (RFC 5987, URL-encoded)
+ *
+ * Starlette emits only the extended form by default — when our previous
+ * implementation matched only `filename=`, every download landed as `.bin`.
+ */
+export function parseFilenameFromContentDisposition(disp: string): string | null {
+  // Prefer the extended form (RFC 5987) — it's UTF-8 safe.
+  const ext = /filename\*=(?:utf-8|UTF-8)''([^;]+)/.exec(disp);
+  if (ext) {
+    try {
+      return decodeURIComponent(ext[1].trim());
+    } catch {
+      return ext[1].trim();
+    }
+  }
+  const legacy = /filename="?([^";]+)"?/.exec(disp);
+  return legacy ? legacy[1] : null;
+}
+
 /** POSTs the export request and triggers a browser download. */
 export async function exportCuesheet(
   songId: string,
@@ -57,8 +79,8 @@ export async function exportCuesheet(
   }
   const blob = await r.blob();
   const disp = r.headers.get("Content-Disposition") ?? "";
-  const m = /filename="?([^";]+)"?/.exec(disp);
-  const fname = m?.[1] ?? `${req.filename ?? "cuesheet"}.bin`;
+  const fname = parseFilenameFromContentDisposition(disp)
+    ?? `${req.filename ?? "cuesheet"}`;
 
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
