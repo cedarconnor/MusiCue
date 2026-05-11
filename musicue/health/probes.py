@@ -261,10 +261,19 @@ def _allin1_cache_dir() -> Path:
 
 
 def _clap_cache_dirs() -> list[Path]:
-    return [
-        Path.home() / ".cache" / "clap",
-        Path.home() / ".cache" / "musicue" / "clap",
-    ]
+    # laion_clap.load_ckpt() actually writes the .pt into its own install
+    # directory (not ~/.cache/clap as the docstring implies). Check the
+    # package dir first; ~/.cache/clap is a backward-compat fallback for
+    # users who manually pre-staged the weight.
+    import importlib.util
+
+    dirs: list[Path] = []
+    spec = importlib.util.find_spec("laion_clap")
+    if spec is not None and spec.origin is not None:
+        dirs.append(Path(spec.origin).parent)
+    dirs.append(Path.home() / ".cache" / "clap")
+    dirs.append(Path.home() / ".cache" / "musicue" / "clap")
+    return dirs
 
 
 @_wrap("allin1")

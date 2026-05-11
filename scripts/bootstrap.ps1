@@ -79,6 +79,16 @@ if ($LASTEXITCODE -ne 0) {
 # -----------------------------------------------------------------------------
 # 6. All-In-One (soft warn — historically painful on Windows)
 # -----------------------------------------------------------------------------
+# allin1 doesn't list madmom as a transitive dep, but it imports it at
+# runtime. madmom builds from sdist on Windows (needs Visual Studio Build
+# Tools + Cython); we attempt it separately so a madmom build failure
+# doesn't poison the allin1 install.
+Write-Step "Installing madmom (allin1 dependency, needs VS Build Tools)"
+& uv pip install madmom
+if ($LASTEXITCODE -ne 0) {
+    Soft-Warn "madmom" "madmom build failed. Install 'Visual Studio Build Tools' (Desktop dev with C++) from visualstudio.microsoft.com and re-run install.bat. Without madmom, All-In-One can't load and beats fall back to librosa (no section detection)."
+}
+
 Write-Step "Installing All-In-One (optional)"
 & uv pip install allin1
 if ($LASTEXITCODE -ne 0) {
