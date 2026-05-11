@@ -14,15 +14,101 @@ audio.wav ─► [Layer 1: Analyze] ─► analysis.json ─► [Layer 2: Compil
 - **Layer 2 (Compile)** — A YAML grammar DSL turns the analysis into a typed cuesheet. Filter expressions (`drum_class == 'kick'`, `any_label('sub bass drop', min_score=0.6)`, `near_downbeat(0.05)`), per-track scoring with multipliers, hierarchy weights, rarity decay, cooldowns. Four built-in grammars: `concert_visuals`, `character_animation`, `lighting`, `camera_edit`.
 - **Layer 3 (Export)** — Nine target formats: CSV, JSON, MIDI, After Effects (.jsx), TouchDesigner (CHOP CSV + events), OSC bundle, Houdini CHOP CSV, disguise/DMX cue list, Unreal Sequencer JSON.
 
-## Quick start
+## Installing MusiCue (Windows)
+
+MusiCue ships a one-click installer for Windows that sets up Python, all
+dependencies, ffmpeg, and the ML model weights.
+
+**What you need before you start**
+
+- A Windows 10 or 11 PC.
+- An NVIDIA GPU (any RTX or recent GTX card). MusiCue installs the
+  CUDA-enabled version of PyTorch; without an NVIDIA GPU, the app still
+  runs but stem separation will be slow.
+- Roughly 6 GB of free disk space for Python, dependencies, and model
+  weights, plus more for your songs and analyses.
+- A working internet connection (the installer downloads several large
+  files; expect 5–20 minutes for a first install).
+
+**Step 1 — Get the code**
+
+Download or `git clone` this repository to a folder you control, for
+example `D:\MusiCue\`.
+
+**Step 2 — Run the installer**
+
+Double-click `install.bat`. A console window opens and walks through:
+
+1. Installs `uv` (the modern Python package manager, ~15 MB).
+2. Creates a project-local Python 3.11 environment in `.venv\`.
+3. Installs MusiCue and all dependencies, including the GPU build of
+   PyTorch (~2 GB).
+4. Tries to install CLAP (semantic labels) and All-In-One (section
+   detection). These are optional — if either fails, the installer
+   notes a warning and continues. MusiCue still works without them; the
+   readiness chip in the UI shows them as missing so you can decide
+   later whether to fix.
+5. Downloads a portable ffmpeg into `vendor\ffmpeg\` (only if you don't
+   already have ffmpeg on PATH).
+6. Pre-downloads the Demucs (~320 MB) and CLAP (~4 GB) model weights.
+7. Prints a readiness table showing which components are ready.
+
+Once the installer says "Install complete," close the window.
+
+**Step 3 — Launch MusiCue**
+
+Double-click `run.bat`. A console window opens, starts the server, and
+prints the URL. Open `http://127.0.0.1:8000/library` in your browser.
+
+In the top right of every page you'll see a small **readiness chip**:
+
+- **Green** — every model is downloaded and ready.
+- **Amber** — optional pieces (All-In-One or CLAP) are missing. The
+  app still works; some features (section detection, semantic labels)
+  will be unavailable.
+- **Red** — a required piece is missing (Python, ffmpeg, Demucs, or
+  Basic Pitch). Click the chip to see exactly what's wrong, then run
+  `install.bat` again to fix it.
+
+Click the chip to open the **Recheck** popover, which lists each
+component, its state, and the exact command to fix it manually if you
+prefer.
+
+**What the installer does NOT do for you**
+
+- It does **not** install an NVIDIA driver. If `nvidia-smi` doesn't
+  work in a fresh console, install the latest NVIDIA Game Ready driver
+  from `nvidia.com` first, then re-run `install.bat`.
+- It does **not** create desktop or Start Menu shortcuts. If you want
+  one, right-click `run.bat` and choose **Send to → Desktop (create
+  shortcut)**.
+- It does **not** update MusiCue itself. To update, `git pull` (or
+  re-download the repo) and run `install.bat` again — it's idempotent
+  and skips work that's already done.
+- It does **not** auto-fix Allin1 if it failed. Allin1 has finicky
+  Windows-native dependencies; if the readiness chip shows it as
+  missing, see `FOLLOWUPS.md` for the current workaround.
+
+## For developers (other operating systems)
+
+If you're on macOS or Linux, or you want a development install on
+Windows without the installer, the path is:
 
 ```powershell
-# Install
-pip install -e ".[dev]"
+# Create a venv however you prefer (uv, conda, python -m venv).
+pip install -e ".[dev,ui,midi,osc]" basic-pitch
+pip install -e ".[clap]"      # optional, ~4 GB of weights on first use
+pip install allin1             # optional, Linux/macOS install is easier
+```
 
-# Optional ML extras (for the full Layer 1 pipeline)
-pip install -e ".[models,clap]"
+Then start the dev server with `python -m uvicorn musicue.ui.server:create_app --factory`.
 
+Run `python -m musicue.health.readiness --print-table` at any time to
+print the same readiness table the chip shows.
+
+## CLI quick reference
+
+```powershell
 # Render a song to a TouchDesigner CHOP CSV in one shot
 musicue render song.wav --target touchdesigner --out song_td.csv
 
