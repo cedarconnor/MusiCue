@@ -61,3 +61,34 @@ def test_wrap_truncates_long_detail():
     status = boom()
     assert status.detail is not None
     assert len(status.detail) <= 200
+
+
+def test_probe_python_venv_ready(monkeypatch):
+    monkeypatch.setattr(probes.sys, "prefix", r"D:\MusiCue\.venv")
+    monkeypatch.setattr(
+        probes.sys, "version_info", (3, 11, 9, "final", 0)
+    )
+    status = probes.probe_python_venv()
+    assert status.state == ComponentState.READY
+    assert status.version == "3.11.9"
+    assert status.required is True
+
+
+def test_probe_python_venv_missing_when_not_in_venv(monkeypatch):
+    monkeypatch.setattr(probes.sys, "prefix", r"C:\Python311")
+    monkeypatch.setattr(
+        probes.sys, "version_info", (3, 11, 9, "final", 0)
+    )
+    status = probes.probe_python_venv()
+    assert status.state == ComponentState.MISSING
+    assert "venv" in (status.detail or "").lower()
+
+
+def test_probe_python_venv_degraded_on_old_python(monkeypatch):
+    monkeypatch.setattr(probes.sys, "prefix", r"D:\MusiCue\.venv")
+    monkeypatch.setattr(
+        probes.sys, "version_info", (3, 10, 0, "final", 0)
+    )
+    status = probes.probe_python_venv()
+    assert status.state == ComponentState.DEGRADED
+    assert "3.11" in (status.detail or "")
