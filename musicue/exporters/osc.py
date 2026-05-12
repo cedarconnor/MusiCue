@@ -50,6 +50,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from musicue.exporters._common import non_empty_tracks
 from musicue.schemas import CueSheet
 
 _TARGET_HZ = 10.0  # downsample rate for continuous tracks
@@ -88,7 +89,7 @@ def export(
     """Write the OSC JSON bundle and a sibling ``play_osc.py`` player script."""
     messages: list[dict] = []
 
-    for track in cuesheet.tracks:
+    for track in non_empty_tracks(cuesheet.tracks):
         address = f"/musicue/{track.name}"
 
         if track.type == "impulse":

@@ -17,6 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
+from musicue.exporters._common import non_empty_tracks
 from musicue.schemas import CueSheet, CueTrack
 
 
@@ -57,9 +58,10 @@ def export(cuesheet: CueSheet, out_path: Path, **opts) -> None:
         f.write("# MusiCue Houdini CHOP Export\n")
         f.write(f"# rate={rate:.4f} start=0 end={cuesheet.duration_sec:.4f}\n")
         writer = csv.writer(f)
-        headers = ["time"] + [track.name for track in cuesheet.tracks]
+        emitted = non_empty_tracks(cuesheet.tracks)
+        headers = ["time"] + [track.name for track in emitted]
         writer.writerow(headers)
-        columns = [_to_column(track, times) for track in cuesheet.tracks]
+        columns = [_to_column(track, times) for track in emitted]
         for i, t in enumerate(times):
             row = [f"{t:.6f}"] + [f"{col[i]:.6f}" for col in columns]
             writer.writerow(row)

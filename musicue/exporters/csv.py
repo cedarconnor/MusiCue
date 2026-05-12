@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
+from musicue.exporters._common import non_empty_tracks
 from musicue.schemas import CueSheet, CueTrack
 
 
@@ -41,7 +42,7 @@ def export(cuesheet: CueSheet, out_path: Path, **opts) -> None:
         "time_sec": list(times),
         "frame_number": [int(round(t * fps)) for t in times],
     }
-    for track in cuesheet.tracks:
+    for track in non_empty_tracks(cuesheet.tracks):
         if track.type == "continuous":
             columns[track.name] = _continuous_col(track, times)
         else:
