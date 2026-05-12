@@ -1,6 +1,6 @@
 # MusiCue
 
-<video src="https://github.com/cedarconnor/MusiCue/raw/main/docs/screenshots/chrome_wCFWaA0XUW.mp4" controls width="100%"></video>
+https://github.com/user-attachments/assets/16a00b67-fab0-4b35-b021-98032cf68f5c
 
 Convert songs into typed event timelines for DCC tools.
 
