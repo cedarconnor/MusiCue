@@ -432,14 +432,10 @@ M0-M4 implementation complete. The full pipeline runs end-to-end on Windows 11 +
 
 ### MusiCue itself
 
-This repository does **not yet ship a `LICENSE` file**. Until one is added,
-the source has no permissive grant — under default copyright law in most
-jurisdictions, no one besides the author can use, copy, modify, or
-distribute it. Before sharing this code publicly (or with a collaborator
-or client), drop a `LICENSE` file at the repo root. MIT is the most common
-choice for tools in this niche and is compatible with every dependency
-listed below; Apache 2.0 is the other reasonable default if you care
-about an explicit patent grant.
+MusiCue is released under the **MIT License** (see [`LICENSE`](LICENSE)).
+The MIT license is compatible with every dependency listed below; it
+allows free use, modification, and redistribution provided the copyright
+notice is preserved.
 
 ### Dependency licenses
 
