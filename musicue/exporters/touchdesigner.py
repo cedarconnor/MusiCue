@@ -24,6 +24,7 @@ from pathlib import Path
 
 import numpy as np
 
+from musicue.exporters._common import non_empty_tracks
 from musicue.schemas import CueSheet, CueTrack
 
 
@@ -59,8 +60,9 @@ def export(cuesheet: CueSheet, out_path: Path, **opts) -> None:
     times = _time_grid(cuesheet)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    emitted = non_empty_tracks(cuesheet.tracks)
     columns: dict[str, list[float]] = {"time": list(times)}
-    for track in cuesheet.tracks:
+    for track in emitted:
         if track.type == "continuous":
             columns[track.name] = _continuous_col(track, times)
         else:
@@ -74,7 +76,7 @@ def export(cuesheet: CueSheet, out_path: Path, **opts) -> None:
 
     events_path = out_path.parent / (out_path.stem + "_events.csv")
     event_rows: list[dict] = []
-    for track in cuesheet.tracks:
+    for track in emitted:
         if track.type in ("impulse", "envelope"):
             for ev in track.events:
                 raw_t = ev.get("t")

@@ -103,6 +103,91 @@ def test_ae_export_handles_leading_digit_track_name(tmp_path):
     assert "var layer_808" not in content
 
 
+def test_ae_export_skips_empty_tracks(tmp_path):
+    """Tracks with no events / no values should NOT produce blank nulls.
+
+    Regression: the live install was emitting Null 5 and Null 6 in AE
+    because phrase_pulse / drop / section_change had no source events.
+    """
+    from musicue.schemas import CueSheet, CueTrack
+
+    cs = CueSheet(
+        source_sha256="x",
+        grammar="g",
+        duration_sec=10.0,
+        tempo_map=[],
+        tracks=[
+            CueTrack(
+                name="kick",
+                type="impulse",
+                timescale="micro",
+                events=[
+                    {"t": 0.5, "strength": 0.9,
+                     "envelope": {"a": 0.005, "d": 0.12, "s": 0.0, "r": 0.0}},
+                ],
+            ),
+            CueTrack(name="phrase_pulse", type="impulse", timescale="meso", events=[]),
+            CueTrack(name="drop", type="impulse", timescale="macro", events=[]),
+            CueTrack(name="energy", type="continuous", timescale="macro",
+                     hop_sec=0.1, values=[-20.0, -19.0, -18.0]),
+            CueTrack(name="empty_curve", type="continuous", timescale="macro",
+                     hop_sec=0.1, values=None),
+        ],
+    )
+    out = tmp_path / "skip.jsx"
+    export(cs, out)
+    content = out.read_text(encoding="utf-8")
+    # Emitted tracks
+    assert "MusiCue_kick" in content
+    assert "MusiCue_energy" in content
+    # Skipped tracks: no null layer created
+    assert "MusiCue_phrase_pulse" not in content
+    assert "MusiCue_drop" not in content
+    assert "MusiCue_empty_curve" not in content
+    # Header lists the skipped tracks so the user understands what happened
+    assert "phrase_pulse" in content
+    assert "drop" in content
+    assert "empty_curve" in content
+
+
+def test_ae_export_impulse_markers_are_per_layer(tmp_path, full_cuesheet):
+    """Per-event markers should attach to the impulse track's null layer,
+    not to the comp. The user complaint was 'all the markers cluttered the
+    timeline — they should be on the nulls they describe.'"""
+    out = tmp_path / "perlayer.jsx"
+    export(full_cuesheet, out)
+    content = out.read_text(encoding="utf-8")
+    # The kick null must have its own marker property set with the kick label.
+    assert "layer_kick.property('Marker')" in content
+    assert "kick s=" in content
+
+
+def test_ae_export_step_markers_stay_on_comp(tmp_path, full_cuesheet):
+    """Section boundaries (step tracks) are global — keep them on the comp."""
+    out = tmp_path / "stepcomp.jsx"
+    export(full_cuesheet, out)
+    content = out.read_text(encoding="utf-8")
+    # section_change is a step track in the fixture; its labels should be
+    # on compMarkers, not on a per-layer marker property.
+    assert "compMarkers.setValueAtTime" in content
+    assert 'section: intro' in content
+    assert 'section: chorus' in content
+    # And there should NOT be a null layer for section_change (step tracks
+    # don't produce slider keyframes, but they may still get a null).
+    # (We don't strictly require a null absence for step tracks; just ensure
+    # the marker is at comp level.)
+
+
+def test_ae_export_header_explains_layer_name_toggle(tmp_path, full_cuesheet):
+    """A non-technical user shouldn't have to guess why the timeline shows
+    'Null 1, Null 2…' — the header comment should point them at the
+    Source Name / Layer Name column toggle."""
+    out = tmp_path / "tip.jsx"
+    export(full_cuesheet, out)
+    content = out.read_text(encoding="utf-8")
+    assert "Source Name" in content and "Layer Name" in content
+
+
 def test_ae_continuous_normalized_input_does_not_saturate(tmp_path):
     """Continuous values in [0, 1] should NOT all map to slider 100."""
     from musicue.exporters.aftereffects import export

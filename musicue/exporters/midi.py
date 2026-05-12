@@ -24,6 +24,7 @@ from typing import Any
 
 import mido
 
+from musicue.exporters._common import non_empty_tracks
 from musicue.schemas import CueSheet
 
 # MIDI channel assignments by track name
@@ -83,7 +84,7 @@ def export(cuesheet: CueSheet, out_path: Path, ticks_per_beat: int = 480, **opts
     mid.tracks.append(meta_track)
     meta_track.append(mido.MetaMessage("set_tempo", tempo=tempo_us, time=0))
 
-    for track in cuesheet.tracks:
+    for track in non_empty_tracks(cuesheet.tracks):
         midi_track = mido.MidiTrack()
         mid.tracks.append(midi_track)
         midi_track.append(mido.MetaMessage("track_name", name=track.name, time=0))

@@ -23,13 +23,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from musicue.exporters._common import non_empty_tracks
 from musicue.schemas import CueSheet
 
 
 def export(cuesheet: CueSheet, out_path: Path, **opts) -> None:
     tracks = []
 
-    for track in cuesheet.tracks:
+    for track in non_empty_tracks(cuesheet.tracks):
         if track.type == "impulse":
             events = [
                 {
