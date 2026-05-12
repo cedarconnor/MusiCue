@@ -1,5 +1,7 @@
 # MusiCue
 
+<video src="https://github.com/cedarconnor/MusiCue/raw/main/docs/screenshots/chrome_wCFWaA0XUW.mp4" controls width="100%"></video>
+
 Convert songs into typed event timelines for DCC tools.
 
 MusiCue is a three-layer pipeline that takes an audio file and produces a structured **cuesheet** — a timeline of impulses, envelopes, ramps, steps, and continuous curves — ready to drive animation, lighting, video, and live-show tools.
