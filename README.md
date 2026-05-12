@@ -258,7 +258,7 @@ Open <http://localhost:8765/>. Default bind is localhost; do NOT bind to
 arbitrary URLs (with private/loopback IPs blocked) and would benefit from
 auth before being exposed.
 
-Test count at HEAD: **383 unit tests passing** across 5 backend milestones plus the v0.1a–d / v0.2a–c web UI and analysis work.
+Test count at HEAD: **450+ unit and integration tests passing** across the backend milestones, the v0.1a–d / v0.2a–c web UI and analysis work, the health probes, the export round-trips, and the installer scripts.
 
 #### What you'll see
 
