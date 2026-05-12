@@ -428,6 +428,74 @@ M0-M4 implementation complete. The full pipeline runs end-to-end on Windows 11 +
 - `cuesheet.json` — schema v1.1 (frozen)
 - 9 exporter targets shipped
 
-## License
+## License & third-party notices
 
-(Project is currently unlicensed — add a LICENSE file before public release.)
+### MusiCue itself
+
+This repository does **not yet ship a `LICENSE` file**. Until one is added,
+the source has no permissive grant — under default copyright law in most
+jurisdictions, no one besides the author can use, copy, modify, or
+distribute it. Before sharing this code publicly (or with a collaborator
+or client), drop a `LICENSE` file at the repo root. MIT is the most common
+choice for tools in this niche and is compatible with every dependency
+listed below; Apache 2.0 is the other reasonable default if you care
+about an explicit patent grant.
+
+### Dependency licenses
+
+MusiCue's runtime is assembled from third-party libraries. To the best of
+my knowledge:
+
+| Package | License | Notes |
+|---|---|---|
+| PyTorch / torchaudio / torchvision | BSD-3-Clause | Permissive. CUDA wheel from PyTorch's index. |
+| Demucs | MIT | Code MIT; `htdemucs_ft` weights MIT (Meta). |
+| librosa | ISC | Permissive. |
+| Basic Pitch | Apache 2.0 | Code + bundled ONNX/TF weights are Apache 2.0 (Spotify). |
+| FastAPI / Starlette / uvicorn | MIT / BSD-3 | Permissive. |
+| pydantic | MIT | Permissive. |
+| numpy / scipy / soundfile / soxr | BSD-3 | Permissive. |
+| pyyaml | MIT | Permissive. |
+| typer / click | MIT / BSD-3 | Permissive. |
+| mido / python-osc | MIT / Unlicense | Permissive. |
+| All-In-One (`allin1`) | MIT | Optional. Trained on Harmonix data — verify the weight redistribution terms in their repo before shipping a bundled copy. |
+| **LAION-CLAP (`laion-clap`)** | **MIT (code) / case-by-case (weights)** | The pretrained `630k-best.pt` weights are released by LAION; verify upstream terms before commercial use. Research/personal use is uncontroversial. |
+| **ffmpeg (gyan.dev "essentials" build)** | **GPL** | The installer downloads ffmpeg into `vendor/ffmpeg/`. The essentials build includes GPL-licensed components (x264, x265). MusiCue never links to ffmpeg — it only invokes the binary as a subprocess — so MusiCue's own code is not virally affected. **If you redistribute MusiCue together with a bundled `vendor/ffmpeg/`, you must also satisfy GPL source-availability requirements for the bundled binary** (gyan.dev links to ffmpeg source in their build pages). The safest path: instruct your users to install ffmpeg themselves rather than bundling it. |
+| madmom | BSD-3 | Optional dep of `allin1`. |
+
+### Things to be careful about
+
+1. **Redistribution that bundles ffmpeg** triggers GPL source-distribution
+   obligations. Either don't bundle it (point users at the installer or
+   `ffmpeg.org`) or also ship the corresponding ffmpeg source as required
+   by the license.
+
+2. **LAION-CLAP pretrained weights** download automatically on first use
+   (~4 GB into `.venv/Lib/site-packages/laion_clap/`). For personal or
+   research use this is fine; for commercial products check the
+   `LAION-AI/CLAP` repo for the specific weights' terms — the LAION
+   datasets behind some checkpoints have non-commercial clauses.
+
+3. **URL ingest (`yt-dlp`)** is governed by the *destination platform's*
+   Terms of Service, not by `yt-dlp`'s own license (Unlicense / public
+   domain). Downloading from YouTube, SoundCloud, etc. may violate their
+   ToS even though `yt-dlp` itself is free software. MusiCue makes no
+   representation that any given download is authorized — it's the
+   operator's responsibility to comply with applicable terms and
+   copyright law.
+
+4. **Pretrained model weights** (Demucs htdemucs_ft, Basic Pitch, CLAP,
+   All-In-One) live in your local caches under `~/.cache/torch/hub/`,
+   `~/.cache/all-in-one/`, `~/.cache/clap/`, and inside the laion-clap
+   package directory. If you mirror or redistribute these caches, the
+   *weights'* licenses apply, not just MusiCue's.
+
+5. **Songs you analyze** retain their original copyright. MusiCue stores
+   uploads at `%USERPROFILE%\.musicue\songs\<sha256>\source.<ext>`. Don't
+   share that directory publicly unless you have rights to redistribute
+   every song in it.
+
+### Reporting an issue
+
+If you spot a license attribution error or omission above, open an issue
+or PR — corrections are welcome.
