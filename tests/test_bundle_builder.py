@@ -38,6 +38,35 @@ def test_empty_analysis_yields_minimal_bundle():
     assert bundle.drums == {}
 
 
+from musicue.schemas import OnsetEvent
+
+
+def test_drums_regrouped_by_drum_class():
+    analysis = _analysis()
+    analysis.onsets = {
+        "drums": [
+            OnsetEvent(t=0.5, strength=1.0, drum_class="kick"),
+            OnsetEvent(t=0.6, strength=0.5, drum_class="snare"),
+            OnsetEvent(t=0.7, strength=0.8, drum_class="kick"),
+            OnsetEvent(t=0.8, strength=0.6, drum_class=None),
+        ]
+    }
+
+    bundle = build_bundle(analysis, _cuesheet())
+
+    assert set(bundle.drums.keys()) == {"kick", "snare"}
+    assert len(bundle.drums["kick"]) == 2
+    assert len(bundle.drums["snare"]) == 1
+    assert bundle.drums["kick"][0].t == 0.5
+    assert bundle.drums["kick"][0].strength == 1.0
+
+
+def test_drums_missing_section_handled():
+    analysis = _analysis()
+    bundle = build_bundle(analysis, _cuesheet())
+    assert bundle.drums == {}
+
+
 def test_sections_get_normalized_energy_rank():
     sections = [
         SectionEvent(start=0.0, end=4.0, label="intro", confidence=0.9),

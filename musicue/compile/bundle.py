@@ -73,6 +73,17 @@ def _build_sections(analysis: AnalysisResult) -> list[SectionBundleEntry]:
     return out
 
 
+def _build_drums(analysis: AnalysisResult) -> dict[str, list[DrumOnset]]:
+    out: dict[str, list[DrumOnset]] = {}
+    for onset in analysis.onsets.get("drums", []):
+        if onset.drum_class is None:
+            continue
+        out.setdefault(onset.drum_class, []).append(
+            DrumOnset(t=onset.t, strength=onset.strength, confidence=onset.drum_class_conf)
+        )
+    return out
+
+
 def build_bundle(analysis: AnalysisResult, cuesheet: CueSheet) -> MusiCueBundle:
     if analysis.source.sha256 != cuesheet.source_sha256:
         raise ValueError(
@@ -87,7 +98,7 @@ def build_bundle(analysis: AnalysisResult, cuesheet: CueSheet) -> MusiCueBundle:
         tempo=analysis.tempo if analysis.tempo else TempoInfo(bpm_global=120.0),
         beats=analysis.beats,
         sections=_build_sections(analysis),
-        drums={},
+        drums=_build_drums(analysis),
         midi={},
         midi_energy={},
         stems_energy={},
