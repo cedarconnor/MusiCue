@@ -1,6 +1,8 @@
 """Build a MusiCueBundle from an AnalysisResult + its compiled CueSheet."""
 from __future__ import annotations
 
+import logging
+
 from musicue.schemas import (
     AnalysisResult,
     CueSheet,
@@ -11,6 +13,8 @@ from musicue.schemas import (
     StemEnergyCurve,
     TempoInfo,
 )
+
+_logger = logging.getLogger(__name__)
 
 
 def _normalize(values: list[float]) -> list[float]:
@@ -125,12 +129,40 @@ def _build_drums(analysis: AnalysisResult) -> dict[str, list[DrumOnset]]:
     return out
 
 
+def _warn_if_drums_unclassified(analysis: AnalysisResult, drums: dict) -> None:
+    """Loud warning when a song has drum onsets but no classifier output.
+
+    Symptom: ``analysis.onsets["drums"]`` has events, but after regrouping by
+    ``drum_class`` the bundle's ``drums`` dict is empty. Almost always means
+    ``drum_classifier_version="not_trained"`` — the CNN checkpoint
+    (``models/drum_cnn.pt``) wasn't found at analysis time, so
+    ``classify_onsets_batch`` passed onsets through with ``drum_class=None``
+    and the bundle correctly dropped them.
+
+    Without this warning the bundle silently has empty drums, which makes
+    CedarToy's iChannel0 low/low_mid/mid_hi bin ranges go dark while
+    everything else looks fine — easy to miss in a visual A/B test.
+    """
+    raw_drum_count = len(analysis.onsets.get("drums", []))
+    if raw_drum_count > 0 and not drums:
+        version = analysis.analysis_config.drum_classifier_version or "unknown"
+        _logger.warning(
+            "Bundle has %d drum onsets but ZERO classified — drum_classifier_version=%r. "
+            "Train or install the drum CNN checkpoint (models/drum_cnn.pt) to populate "
+            "kick/snare/hat/tom/cymbal tracks. Bundle proceeds with empty drums.",
+            raw_drum_count, version,
+        )
+
+
 def build_bundle(analysis: AnalysisResult, cuesheet: CueSheet) -> MusiCueBundle:
     if analysis.source.sha256 != cuesheet.source_sha256:
         raise ValueError(
             f"Analysis sha256={analysis.source.sha256} does not match "
             f"cuesheet sha256={cuesheet.source_sha256}"
         )
+
+    drums = _build_drums(analysis)
+    _warn_if_drums_unclassified(analysis, drums)
 
     return MusiCueBundle(
         source_sha256=analysis.source.sha256,
@@ -139,7 +171,7 @@ def build_bundle(analysis: AnalysisResult, cuesheet: CueSheet) -> MusiCueBundle:
         tempo=analysis.tempo if analysis.tempo else TempoInfo(bpm_global=120.0),
         beats=analysis.beats,
         sections=_build_sections(analysis),
-        drums=_build_drums(analysis),
+        drums=drums,
         midi=_build_midi(analysis),
         midi_energy=_build_midi_energy(
             analysis,

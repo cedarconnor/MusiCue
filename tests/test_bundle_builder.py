@@ -124,6 +124,40 @@ def test_drums_missing_section_handled():
     assert bundle.drums == {}
 
 
+def test_unclassified_drums_emit_warning(caplog):
+    """If drums onsets exist but none have drum_class, warn loudly.
+
+    Regression hook for the silent-empty-drums case we hit when the CNN
+    checkpoint was missing (drum_classifier_version="not_trained").
+    """
+    import logging
+
+    analysis = _analysis()
+    analysis.onsets = {
+        "drums": [
+            OnsetEvent(t=0.1, strength=1.0, drum_class=None),
+            OnsetEvent(t=0.5, strength=0.8, drum_class=None),
+        ]
+    }
+    with caplog.at_level(logging.WARNING, logger="musicue.compile.bundle"):
+        build_bundle(analysis, _cuesheet())
+
+    assert any("ZERO classified" in m for m in caplog.messages)
+
+
+def test_no_warning_when_drums_classified(caplog):
+    import logging
+
+    analysis = _analysis()
+    analysis.onsets = {
+        "drums": [OnsetEvent(t=0.1, strength=1.0, drum_class="kick")],
+    }
+    with caplog.at_level(logging.WARNING, logger="musicue.compile.bundle"):
+        build_bundle(analysis, _cuesheet())
+
+    assert not any("ZERO classified" in m for m in caplog.messages)
+
+
 def test_sections_get_normalized_energy_rank():
     sections = [
         SectionEvent(start=0.0, end=4.0, label="intro", confidence=0.9),
