@@ -128,6 +128,7 @@ musicue export cuesheet.json --target after_effects --out cuesheet.jsx
 | `musicue analyze <song>` | Layer 1 — write `analysis.json` |
 | `musicue compile <analysis.json>` | Layer 2 — write `cuesheet.json` |
 | `musicue export <cuesheet.json> --target <name>` | Layer 3 — emit target format |
+| `musicue export-bundle <song>` | Compose AnalysisResult + CueSheet into a single `<song>.musicue.json` for downstream consumers (e.g. [CedarToy](https://github.com/cedarconnor/cedartoy)) |
 | `musicue render <song>` | All three layers in one shot |
 | `musicue render <dir> --batch --workers 4` | Parallel batch over a directory |
 | `musicue inspect <analysis.json>` | Print human-readable summary |
@@ -188,6 +189,47 @@ The detection is heuristic — no ML, no new dependencies. Phrase blocks come fr
 | `houdini` | CHOP-compatible CSV | Metadata header, `time` channel, per-track channels |
 | `disguise` | Cue list CSV | HH:MM:SS:FF timecode at configurable fps |
 | `unreal` | Sequencer JSON | Event tracks + float curves with interp keys |
+
+## Pair with CedarToy for music-reactive shader visuals
+
+[**CedarToy**](https://github.com/cedarconnor/cedartoy) is a GLSL shader renderer — think Shadertoy, but for offline high-resolution rendering. Out of the box it can react to raw audio amplitude ("louder = brighter"), but that's not actually musical. The shader has no idea what a beat is, where the chorus starts, or when the kick drum hits.
+
+MusiCue can hand CedarToy a structured **bundle file** describing every beat, drum hit, section change, and melodic phrase in your song. CedarToy then drives the shader from those musical events directly: the kick drum becomes a real impulse in the texture, sections sustain rather than going silent between hits, and the visuals lock to the BPM.
+
+**One-time workflow** — given a song `my_music.mp3`:
+
+1. **Export the bundle:**
+
+   ```powershell
+   musicue export-bundle my_music.mp3
+   ```
+
+   This writes `my_music.musicue.json` next to the audio file. The first run is slow (full Demucs / beat detection / MIDI extraction pipeline); subsequent runs reuse the cache.
+
+2. **In CedarToy, render your shader pointing at the audio:**
+
+   ```powershell
+   python -m cedartoy.cli render shaders/luminescence.glsl --audio-path my_music.mp3
+   ```
+
+   CedarToy auto-discovers `my_music.musicue.json` as a sibling of the audio — no extra flags needed. Add `--bundle-mode raw` to A/B against the unbundled baseline.
+
+That's it. CedarToy now synthesizes its `iChannel0` texture from MusiCue's events instead of raw FFT, and binds five new uniforms (`iBpm`, `iBeat`, `iBar`, `iSectionEnergy`, `iEnergy`) that any shader can read.
+
+**What the bundle contains** (the fields CedarToy actually consumes):
+
+- All beats and downbeats with bar numbers
+- Per-section LUFS-ranked energy weights (0..1)
+- Per-drum-class onsets (kick, snare, hat, cymbal, tom) with timing and strength
+- Per-stem MIDI activity curves for melodic content (vocals, other stem)
+- A normalized global energy curve over the whole song
+- The compiled cuesheet embedded verbatim, for tools that want grammar-shaped events
+
+The bundle is plain JSON, schema-versioned at `1.0`, typically 50–200 KB. Generate it once per song; multiple visual tools can consume the same file.
+
+**Note on drum reactivity:** the bundle's drum tracks only populate when MusiCue has a trained drum-classifier checkpoint at `models/drum_cnn.pt`. Without that file, the bundle still ships with beats, sections, MIDI, and energy curves — just not per-drum impulses. `musicue export-bundle` prints a loud warning when drums were onset-detected but not classified, so you'll know.
+
+See [`musicue/compile/bundle.py`](musicue/compile/bundle.py) for the builder, and the [CedarToy AUDIO_SYSTEM.md](https://github.com/cedarconnor/cedartoy/blob/main/docs/AUDIO_SYSTEM.md) for the consumer side.
 
 ## Configuration
 
