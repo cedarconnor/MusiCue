@@ -196,3 +196,52 @@ class CueSheet(BaseModel):
     drop_frame: bool = False
     tempo_map: list[dict[str, float]] = Field(default_factory=list)
     tracks: list[CueTrack] = Field(default_factory=list)
+
+
+class SectionBundleEntry(BaseModel):
+    start: float
+    end: float
+    label: str
+    confidence: float
+    lufs: float | None = None
+    energy_rank: float
+    spectral_flux_rise: float | None = None
+
+
+class DrumOnset(BaseModel):
+    t: float
+    strength: float
+    confidence: float | None = None
+
+
+class MidiNoteBundle(BaseModel):
+    t: float
+    duration: float
+    pitch: int
+    velocity: int
+
+
+class StemEnergyCurve(BaseModel):
+    hop_sec: float
+    values: list[float] = Field(default_factory=list)
+
+
+class MusiCueBundle(BaseModel):
+    schema_version: str = "1.0"
+    source_sha256: str
+    duration_sec: float
+    fps: float = 24.0
+
+    tempo: TempoInfo
+    beats: list[BeatEvent] = Field(default_factory=list)
+
+    sections: list[SectionBundleEntry] = Field(default_factory=list)
+
+    drums: dict[str, list[DrumOnset]] = Field(default_factory=dict)
+    midi: dict[str, list[MidiNoteBundle]] = Field(default_factory=dict)
+    midi_energy: dict[str, StemEnergyCurve] = Field(default_factory=dict)
+
+    stems_energy: dict[str, StemEnergyCurve] = Field(default_factory=dict)
+    global_energy: StemEnergyCurve
+
+    cuesheet: CueSheet
