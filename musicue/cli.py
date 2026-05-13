@@ -312,5 +312,56 @@ def index_cmd(
     raise typer.Exit(cmd_rebuild(target))
 
 
+@app.command(name="export-bundle")
+def export_bundle(
+    audio: Path = typer.Argument(..., help="Audio file (wav/flac/mp3)"),
+    analysis: Optional[Path] = typer.Option(None, "--analysis"),
+    cuesheet: Optional[Path] = typer.Option(None, "--cuesheet"),
+    grammar: str = typer.Option("concert_visuals", "--grammar", "-g"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+    force: bool = typer.Option(False, "--force"),
+) -> None:
+    """Compose AnalysisResult + CueSheet into a CedarToy-targeted song.musicue.json."""
+    from musicue.analysis.pipeline import run_analysis
+    from musicue.compile.bundle import build_bundle
+    from musicue.compile.compiler import compile_analysis
+    from musicue.config import MusiCueConfig
+    from musicue.schemas import AnalysisResult, CueSheet
+
+    target = output if output else audio.with_suffix("").with_suffix(".musicue.json")
+    if target.exists() and not force:
+        typer.echo(f"Refusing to overwrite {target}; pass --force to override.", err=True)
+        raise typer.Exit(code=1)
+
+    if analysis is None:
+        cfg = MusiCueConfig()
+        candidate = cfg.runs_dir / audio.stem / "analysis.json"
+        if candidate.exists():
+            analysis = candidate
+        else:
+            typer.echo(f"No analysis found; running pipeline on {audio}.")
+            result = run_analysis(audio, cfg)
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+            candidate.write_text(result.model_dump_json(indent=2))
+            analysis = candidate
+
+    analysis_obj = AnalysisResult.model_validate_json(analysis.read_text())
+
+    if cuesheet is None:
+        sibling = audio.with_suffix("").with_suffix(".cuesheet.json")
+        if sibling.exists():
+            cs_obj = CueSheet.model_validate_json(sibling.read_text())
+        else:
+            typer.echo(f"No cuesheet found; compiling with grammar '{grammar}'.")
+            cs_obj = compile_analysis(analysis_obj, grammar=grammar)
+    else:
+        cs_obj = CueSheet.model_validate_json(cuesheet.read_text())
+
+    bundle = build_bundle(analysis_obj, cs_obj)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(bundle.model_dump_json(indent=2))
+    typer.echo(f"Bundle written to {target}")
+
+
 if __name__ == "__main__":
     app()
