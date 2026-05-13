@@ -73,6 +73,40 @@ def _build_sections(analysis: AnalysisResult) -> list[SectionBundleEntry]:
     return out
 
 
+def _build_midi(analysis: AnalysisResult) -> dict[str, list[MidiNoteBundle]]:
+    out: dict[str, list[MidiNoteBundle]] = {}
+    for stem, notes in analysis.midi.items():
+        out[stem] = [
+            MidiNoteBundle(t=n.t, duration=n.duration, pitch=n.pitch, velocity=n.velocity)
+            for n in notes
+        ]
+    return out
+
+
+def _build_midi_energy(
+    analysis: AnalysisResult, hop_sec: float, duration_sec: float
+) -> dict[str, StemEnergyCurve]:
+    if hop_sec <= 0:
+        return {}
+    n_bins = int(duration_sec / hop_sec)
+    out: dict[str, StemEnergyCurve] = {}
+    for stem, notes in analysis.midi.items():
+        values = [0.0] * n_bins
+        for note in notes:
+            note_end = note.t + note.duration
+            bin_start = max(0, int(note.t / hop_sec))
+            bin_end = min(n_bins, int(note_end / hop_sec) + 1)
+            vel_norm = note.velocity / 127.0
+            for b in range(bin_start, bin_end):
+                bin_t0 = b * hop_sec
+                bin_t1 = bin_t0 + hop_sec
+                overlap = max(0.0, min(bin_t1, note_end) - max(bin_t0, note.t))
+                values[b] += vel_norm * (overlap / hop_sec)
+        values = [max(0.0, min(1.0, v)) for v in values]
+        out[stem] = StemEnergyCurve(hop_sec=hop_sec, values=values)
+    return out
+
+
 def _build_drums(analysis: AnalysisResult) -> dict[str, list[DrumOnset]]:
     out: dict[str, list[DrumOnset]] = {}
     for onset in analysis.onsets.get("drums", []):
@@ -99,8 +133,12 @@ def build_bundle(analysis: AnalysisResult, cuesheet: CueSheet) -> MusiCueBundle:
         beats=analysis.beats,
         sections=_build_sections(analysis),
         drums=_build_drums(analysis),
-        midi={},
-        midi_energy={},
+        midi=_build_midi(analysis),
+        midi_energy=_build_midi_energy(
+            analysis,
+            analysis.analysis_config.curve_hop_sec,
+            analysis.source.duration_sec,
+        ),
         stems_energy={},
         global_energy=StemEnergyCurve(hop_sec=0.04, values=[]),
         cuesheet=cuesheet,

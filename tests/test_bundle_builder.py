@@ -38,7 +38,39 @@ def test_empty_analysis_yields_minimal_bundle():
     assert bundle.drums == {}
 
 
-from musicue.schemas import OnsetEvent
+from musicue.schemas import MidiNote, OnsetEvent
+
+
+def test_midi_notes_passed_through():
+    analysis = _analysis()
+    analysis.midi = {
+        "vocals": [
+            MidiNote(t=0.0, duration=0.5, pitch=60, velocity=80),
+            MidiNote(t=1.0, duration=0.25, pitch=64, velocity=100),
+        ]
+    }
+    bundle = build_bundle(analysis, _cuesheet())
+
+    assert "vocals" in bundle.midi
+    assert len(bundle.midi["vocals"]) == 2
+    assert bundle.midi["vocals"][0].pitch == 60
+    assert bundle.midi["vocals"][1].velocity == 100
+
+
+def test_midi_energy_curve_derived_per_stem():
+    analysis = _analysis()
+    analysis.midi = {
+        "vocals": [MidiNote(t=0.0, duration=1.0, pitch=60, velocity=127)],
+    }
+    bundle = build_bundle(analysis, _cuesheet())
+
+    energy = bundle.midi_energy["vocals"]
+    assert energy.hop_sec == 0.04
+    expected_bins = int(10.0 / 0.04)
+    assert len(energy.values) == expected_bins
+    assert energy.values[0] > 0.95
+    assert energy.values[24] > 0.95
+    assert energy.values[30] < 0.05
 
 
 def test_drums_regrouped_by_drum_class():
