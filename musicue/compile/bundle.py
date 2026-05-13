@@ -73,6 +73,13 @@ def _build_sections(analysis: AnalysisResult) -> list[SectionBundleEntry]:
     return out
 
 
+def _build_global_energy(analysis: AnalysisResult) -> StemEnergyCurve:
+    curve = analysis.curves.get("lufs")
+    if curve is None or not curve.values:
+        return StemEnergyCurve(hop_sec=0.04, values=[])
+    return StemEnergyCurve(hop_sec=curve.hop_sec, values=_normalize(curve.values))
+
+
 def _build_midi(analysis: AnalysisResult) -> dict[str, list[MidiNoteBundle]]:
     out: dict[str, list[MidiNoteBundle]] = {}
     for stem, notes in analysis.midi.items():
@@ -140,6 +147,6 @@ def build_bundle(analysis: AnalysisResult, cuesheet: CueSheet) -> MusiCueBundle:
             analysis.source.duration_sec,
         ),
         stems_energy={},
-        global_energy=StemEnergyCurve(hop_sec=0.04, values=[]),
+        global_energy=_build_global_energy(analysis),
         cuesheet=cuesheet,
     )

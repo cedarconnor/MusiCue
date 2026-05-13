@@ -38,7 +38,32 @@ def test_empty_analysis_yields_minimal_bundle():
     assert bundle.drums == {}
 
 
-from musicue.schemas import MidiNote, OnsetEvent
+from musicue.schemas import MidiNote, OnsetEvent, TimedCurve
+
+
+def test_global_energy_normalized_from_lufs_curve():
+    analysis = _analysis()
+    analysis.curves = {"lufs": TimedCurve(hop_sec=0.04, values=[-30.0, -20.0, -10.0, 0.0])}
+
+    bundle = build_bundle(analysis, _cuesheet())
+
+    assert bundle.global_energy.hop_sec == 0.04
+    assert bundle.global_energy.values[0] == 0.0
+    assert bundle.global_energy.values[-1] == 1.0
+
+
+def test_global_energy_empty_when_no_lufs_curve():
+    bundle = build_bundle(_analysis(), _cuesheet())
+    assert bundle.global_energy.values == []
+
+
+def test_cuesheet_embedded_verbatim():
+    cs = _cuesheet()
+    cs.grammar = "lighting"
+    bundle = build_bundle(_analysis(), cs)
+
+    assert bundle.cuesheet.grammar == "lighting"
+    assert bundle.cuesheet.source_sha256 == cs.source_sha256
 
 
 def test_midi_notes_passed_through():
