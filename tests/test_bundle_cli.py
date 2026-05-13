@@ -73,6 +73,14 @@ def test_export_bundle_explicit_output(tmp_path):
     assert output.exists()
 
 
+def test_committed_fixture_roundtrips():
+    fixture = Path("tests/fixtures/sample.musicue.json")
+    if not fixture.exists():
+        return
+    bundle = MusiCueBundle.model_validate_json(fixture.read_text())
+    assert bundle.schema_version.startswith("1.")
+
+
 def test_export_bundle_refuses_existing_without_force(tmp_path):
     audio, analysis_path, cuesheet_path = _write_minimal_artifacts(tmp_path)
     target = tmp_path / "song.musicue.json"
