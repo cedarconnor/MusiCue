@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from musicue.compile.bundle import build_bundle
@@ -11,9 +13,32 @@ from musicue.schemas import (
 )
 
 
-def _analysis(sha: str = "a" * 64, sections=None) -> AnalysisResult:
+def make_analysis_fixture(
+    audio_path: Path | None = None,
+    sha: str | None = None,
+    sections=None,
+    duration_sec: float = 10.0,
+) -> AnalysisResult:
+    """Build a synthetic AnalysisResult.
+
+    If ``audio_path`` is given, sha256 is computed from the file so the
+    result can pair with a CedarToy folder export that copies that audio.
+    Otherwise, ``sha`` (or the default "a"*64) is used.
+    """
+    if audio_path is not None:
+        from musicue.ui.storage import sha256_of_file
+        sha256 = sha256_of_file(audio_path)
+        path_str = str(audio_path)
+    else:
+        sha256 = sha or "a" * 64
+        path_str = "x.wav"
     return AnalysisResult(
-        source=SourceInfo(path="x.wav", sha256=sha, duration_sec=10.0, sample_rate=44100),
+        source=SourceInfo(
+            path=path_str,
+            sha256=sha256,
+            duration_sec=duration_sec,
+            sample_rate=44100,
+        ),
         analysis_config=AnalysisConfig(),
         stems={},
         tempo=TempoInfo(bpm_global=120.0),
@@ -21,8 +46,24 @@ def _analysis(sha: str = "a" * 64, sections=None) -> AnalysisResult:
     )
 
 
+def make_cuesheet_fixture(
+    source_sha256: str = "a" * 64,
+    duration_sec: float = 10.0,
+) -> CueSheet:
+    return CueSheet(
+        source_sha256=source_sha256,
+        grammar="concert_visuals",
+        duration_sec=duration_sec,
+    )
+
+
+# Backwards-compatible aliases used by tests below.
+def _analysis(sha: str = "a" * 64, sections=None) -> AnalysisResult:
+    return make_analysis_fixture(sha=sha, sections=sections)
+
+
 def _cuesheet(sha: str = "a" * 64) -> CueSheet:
-    return CueSheet(source_sha256=sha, grammar="concert_visuals", duration_sec=10.0)
+    return make_cuesheet_fixture(source_sha256=sha)
 
 
 def test_sha_cross_check_raises_on_mismatch():
