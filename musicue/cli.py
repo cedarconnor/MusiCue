@@ -318,21 +318,46 @@ def export_bundle(
     analysis: Optional[Path] = typer.Option(None, "--analysis"),
     cuesheet: Optional[Path] = typer.Option(None, "--cuesheet"),
     grammar: str = typer.Option("concert_visuals", "--grammar", "-g"),
-    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o",
+        help="Single-file output path (legacy mode).",
+    ),
+    folder: Optional[Path] = typer.Option(
+        None, "--folder",
+        help="Folder output path. Switches to the portable CedarToy "
+             "project layout (song.wav + song.musicue.json + manifest.json "
+             "+ optional stems/).",
+    ),
+    include_stems: bool = typer.Option(
+        False, "--include-stems",
+        help="Copy Demucs stems into <folder>/stems/. Requires --folder.",
+    ),
+    stems_dir: Optional[Path] = typer.Option(
+        None, "--stems-dir",
+        help="Override the source directory for stems "
+             "(drums/bass/vocals/other.wav).",
+    ),
     force: bool = typer.Option(False, "--force"),
 ) -> None:
-    """Compose AnalysisResult + CueSheet into a CedarToy-targeted song.musicue.json."""
+    """Compose AnalysisResult + CueSheet into a CedarToy-targeted output.
+
+    Default: writes <audio_stem>.musicue.json next to the audio.
+    With --folder: writes a portable CedarToy project folder.
+    """
+    from importlib.metadata import version as _pkg_version
+
     from musicue.analysis.pipeline import run_analysis
     from musicue.compile.bundle import build_bundle
+    from musicue.compile.cedartoy_folder import build_cedartoy_folder
     from musicue.compile.compiler import compile_analysis
     from musicue.config import MusiCueConfig
     from musicue.schemas import AnalysisResult, CueSheet
 
-    target = output if output else audio.with_suffix("").with_suffix(".musicue.json")
-    if target.exists() and not force:
-        typer.echo(f"Refusing to overwrite {target}; pass --force to override.", err=True)
-        raise typer.Exit(code=1)
+    if include_stems and folder is None:
+        typer.echo("--include-stems requires --folder", err=True)
+        raise typer.Exit(code=2)
 
+    # Resolve analysis (run pipeline if missing).
     if analysis is None:
         cfg = MusiCueConfig()
         candidate = cfg.runs_dir / audio.stem / "analysis.json"
@@ -347,6 +372,7 @@ def export_bundle(
 
     analysis_obj = AnalysisResult.model_validate_json(analysis.read_text())
 
+    # Resolve cuesheet (compile if missing).
     if cuesheet is None:
         sibling = audio.with_suffix("").with_suffix(".cuesheet.json")
         if sibling.exists():
@@ -357,10 +383,78 @@ def export_bundle(
     else:
         cs_obj = CueSheet.model_validate_json(cuesheet.read_text())
 
+    # Folder mode: build the portable project layout.
+    if folder is not None:
+        if folder.exists():
+            if not force:
+                typer.echo(
+                    f"Refusing to overwrite {folder}; pass --force.", err=True
+                )
+                raise typer.Exit(code=1)
+            import shutil as _sh
+            _sh.rmtree(folder)
+
+        effective_stems_dir = stems_dir
+        if include_stems and effective_stems_dir is None:
+            cfg = MusiCueConfig()
+            effective_stems_dir = cfg.runs_dir / audio.stem / "stems"
+
+        try:
+            mc_ver = _pkg_version("musicue")
+        except Exception:
+            mc_ver = "0.0.0+dev"
+
+        build_cedartoy_folder(
+            audio_path=audio,
+            analysis=analysis_obj,
+            cuesheet=cs_obj,
+            out_dir=folder,
+            grammar=grammar,
+            musicue_version=mc_ver,
+            include_stems=include_stems,
+            stems_src_dir=effective_stems_dir,
+            original_audio_name=audio.name,
+        )
+        typer.echo(f"Project folder written to {folder}")
+        return
+
+    # Legacy single-file output.
+    target = output if output else audio.with_suffix("").with_suffix(".musicue.json")
+    if target.exists() and not force:
+        typer.echo(f"Refusing to overwrite {target}; pass --force to override.", err=True)
+        raise typer.Exit(code=1)
     bundle = build_bundle(analysis_obj, cs_obj)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(bundle.model_dump_json(indent=2))
     typer.echo(f"Bundle written to {target}")
+
+
+@app.command(name="send-to-cedartoy")
+def send_to_cedartoy(
+    audio: Path = typer.Argument(..., help="Audio file"),
+    output: Path = typer.Option(
+        ..., "--output", "-o",
+        help="Project folder to create.",
+    ),
+    analysis: Optional[Path] = typer.Option(None, "--analysis"),
+    cuesheet: Optional[Path] = typer.Option(None, "--cuesheet"),
+    grammar: str = typer.Option("concert_visuals", "--grammar", "-g"),
+    include_stems: bool = typer.Option(True, "--include-stems/--no-stems"),
+    stems_dir: Optional[Path] = typer.Option(None, "--stems-dir"),
+    force: bool = typer.Option(False, "--force"),
+) -> None:
+    """Alias: produce a portable CedarToy project folder."""
+    export_bundle(
+        audio=audio,
+        analysis=analysis,
+        cuesheet=cuesheet,
+        grammar=grammar,
+        output=None,
+        folder=output,
+        include_stems=include_stems,
+        stems_dir=stems_dir,
+        force=force,
+    )
 
 
 if __name__ == "__main__":
