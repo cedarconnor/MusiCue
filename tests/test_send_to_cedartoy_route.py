@@ -117,3 +117,35 @@ def test_send_to_cedartoy_409_when_target_exists(client, tmp_path):
         },
     )
     assert resp.status_code == 409
+
+
+def test_send_to_cedartoy_with_stems(client, tmp_path):
+    """End-to-end: cached stems on disk are copied into the output folder."""
+    c, root = client
+    sha = _seed_with_audio(tmp_path, root)
+
+    # Drop stems into the analysis dir to mimic a cached Demucs run.
+    stems_dir = root / "songs" / sha / "analyses" / ANALYSIS_ID / "stems"
+    stems_dir.mkdir(parents=True)
+    for name in ("drums", "bass", "vocals", "other"):
+        sf.write(
+            str(stems_dir / f"{name}.wav"),
+            np.zeros(11025, dtype="float32"),
+            44100,
+            subtype="PCM_16",
+        )
+
+    out = tmp_path / "exports" / "song"
+    resp = c.post(
+        f"/api/songs/{sha}/analyses/{ANALYSIS_ID}/send-to-cedartoy",
+        json={
+            "output_folder": str(out),
+            "grammar": "concert_visuals",
+            "include_stems": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["stems_included"] is True
+
+    for name in ("drums", "bass", "vocals", "other"):
+        assert (out / "stems" / f"{name}.wav").exists()
