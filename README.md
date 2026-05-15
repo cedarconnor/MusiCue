@@ -128,7 +128,8 @@ musicue export cuesheet.json --target after_effects --out cuesheet.jsx
 | `musicue analyze <song>` | Layer 1 — write `analysis.json` |
 | `musicue compile <analysis.json>` | Layer 2 — write `cuesheet.json` |
 | `musicue export <cuesheet.json> --target <name>` | Layer 3 — emit target format |
-| `musicue export-bundle <song>` | Compose AnalysisResult + CueSheet into a single `<song>.musicue.json` for downstream consumers (e.g. [CedarToy](https://github.com/cedarconnor/cedartoy)) |
+| `musicue export-bundle <song>` | Compose AnalysisResult + CueSheet into a single `<song>.musicue.json` for downstream consumers (e.g. [CedarToy](https://github.com/cedarconnor/cedartoy)). Pass `--folder <dir>` to produce a portable project folder instead. |
+| `musicue send-to-cedartoy <song> --output <dir>` | Alias for `export-bundle --folder` with stems included by default. Produces a self-contained folder you can hand to another machine. |
 | `musicue render <song>` | All three layers in one shot |
 | `musicue render <dir> --batch --workers 4` | Parallel batch over a directory |
 | `musicue inspect <analysis.json>` | Print human-readable summary |
@@ -196,25 +197,50 @@ The detection is heuristic — no ML, no new dependencies. Phrase blocks come fr
 
 MusiCue can hand CedarToy a structured **bundle file** describing every beat, drum hit, section change, and melodic phrase in your song. CedarToy then drives the shader from those musical events directly: the kick drum becomes a real impulse in the texture, sections sustain rather than going silent between hits, and the visuals lock to the BPM.
 
-**One-time workflow** — given a song `my_music.mp3`:
+### Recommended workflow — "Send to CedarToy" (web UI)
 
-1. **Export the bundle:**
+When you're in the MusiCue editor for a song, the **→ Send to CedarToy** button at the right of the transport row builds a portable project folder you can hand to a CedarToy machine.
 
-   ```powershell
-   musicue export-bundle my_music.mp3
-   ```
+The dialog asks for:
 
-   This writes `my_music.musicue.json` next to the audio file. The first run is slow (full Demucs / beat detection / MIDI extraction pipeline); subsequent runs reuse the cache.
+- **Output folder** — server-local path. Defaults to `exports/<song-title>/`. If you're running MusiCue and CedarToy on the same machine, point this anywhere CedarToy can read.
+- **Grammar** — which animation grammar to compile the cuesheet with (`concert_visuals` is the default and what most shaders are tuned against).
+- **Stems** — when checked, copies the four Demucs stems alongside the bundle. Useful for hand-mixing on the destination machine, or for future per-stem shader uniforms.
+- **Force re-analyze** — re-runs the whole analysis pipeline ignoring cache. Off by default; only check it if you suspect the cached analysis is stale. Adds ~2 minutes per song.
 
-2. **In CedarToy, render your shader pointing at the audio:**
+Clicking **Export ▶** produces:
 
-   ```powershell
-   python -m cedartoy.cli render shaders/luminescence.glsl --audio-path my_music.mp3
-   ```
+```
+<output folder>/
+  song.wav                     decoded to WAV at native sample rate
+  song.musicue.json            the bundle CedarToy reads
+  manifest.json                grammar + MusiCue version + original audio filename
+  stems/                       optional, when "Include stems" was checked
+    drums.wav  bass.wav  vocals.wav  other.wav
+```
 
-   CedarToy auto-discovers `my_music.musicue.json` as a sibling of the audio — no extra flags needed. Add `--bundle-mode raw` to A/B against the unbundled baseline.
+Drop the whole folder onto another machine, point CedarToy at `song.wav`, and it auto-discovers the bundle as a sibling.
 
-That's it. CedarToy now synthesizes its `iChannel0` texture from MusiCue's events instead of raw FFT, and binds five new uniforms (`iBpm`, `iBeat`, `iBar`, `iSectionEnergy`, `iEnergy`) that any shader can read.
+### Headless equivalents
+
+Both forms of the operation are scriptable:
+
+```powershell
+# Portable folder layout (matches the web UI's "Send to CedarToy"):
+musicue send-to-cedartoy my_music.mp3 --output exports/my_music
+
+# Or use export-bundle directly:
+musicue export-bundle my_music.mp3 --folder exports/my_music --include-stems
+
+# Legacy single-file form (no folder, no stems, no manifest — still supported):
+musicue export-bundle my_music.mp3
+```
+
+The legacy single-file form writes `my_music.musicue.json` next to the audio; CedarToy still auto-discovers it sibling-style when you point at the audio. Use the folder form whenever you'll be moving the result between machines — it's self-contained.
+
+### What CedarToy gets out of it
+
+CedarToy synthesizes its `iChannel0` texture from MusiCue's events instead of raw FFT, and binds five new uniforms (`iBpm`, `iBeat`, `iBar`, `iSectionEnergy`, `iEnergy`) that any shader can read.
 
 **What the bundle contains** (the fields CedarToy actually consumes):
 
