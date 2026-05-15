@@ -97,3 +97,126 @@ def test_build_folder_writes_audio_bundle_and_manifest(tmp_path):
     assert manifest["audio_filename"] == "song.wav"
     assert manifest["grammar"] == "concert_visuals"
     assert manifest["musicue_version"] == "0.4.1-test"
+
+
+def test_build_folder_copies_stems_when_requested(tmp_path):
+    audio_src = tmp_path / "src" / "song.wav"
+    audio_src.parent.mkdir(parents=True)
+    _write_silent_wav(audio_src)
+
+    stems_src = tmp_path / "stems"
+    stems_src.mkdir()
+    for name in ("drums", "bass", "vocals", "other"):
+        _write_silent_wav(stems_src / f"{name}.wav")
+
+    out_dir = tmp_path / "out" / "song"
+    analysis = make_analysis_fixture(audio_path=audio_src)
+    cuesheet = make_cuesheet_fixture(source_sha256=analysis.source.sha256)
+
+    manifest = build_cedartoy_folder(
+        audio_path=audio_src,
+        analysis=analysis,
+        cuesheet=cuesheet,
+        out_dir=out_dir,
+        grammar="concert_visuals",
+        musicue_version="0.4.1-test",
+        include_stems=True,
+        stems_src_dir=stems_src,
+    )
+
+    for name in ("drums", "bass", "vocals", "other"):
+        assert (out_dir / "stems" / f"{name}.wav").exists()
+    assert manifest.stems_omitted_reason is None
+
+
+def test_build_folder_records_reason_when_stems_src_missing(tmp_path):
+    audio_src = tmp_path / "src" / "song.wav"
+    audio_src.parent.mkdir(parents=True)
+    _write_silent_wav(audio_src)
+
+    out_dir = tmp_path / "out" / "song"
+    analysis = make_analysis_fixture(audio_path=audio_src)
+    cuesheet = make_cuesheet_fixture(source_sha256=analysis.source.sha256)
+
+    manifest = build_cedartoy_folder(
+        audio_path=audio_src,
+        analysis=analysis,
+        cuesheet=cuesheet,
+        out_dir=out_dir,
+        grammar="concert_visuals",
+        musicue_version="0.4.1-test",
+        include_stems=True,
+        stems_src_dir=tmp_path / "does" / "not" / "exist",
+    )
+
+    assert not (out_dir / "stems").exists()
+    assert "cache missing" in (manifest.stems_omitted_reason or "")
+    saved = json.loads((out_dir / "manifest.json").read_text())
+    assert "cache missing" in saved["stems_omitted_reason"]
+
+
+def test_build_folder_decodes_non_wav_audio(tmp_path):
+    import numpy as np
+    import soundfile as sf
+
+    flac_src = tmp_path / "src" / "song.flac"
+    flac_src.parent.mkdir(parents=True)
+    sr = 44100
+    sf.write(str(flac_src), np.zeros(int(sr * 0.25), dtype="float32"), sr)
+
+    out_dir = tmp_path / "out" / "song"
+    analysis = make_analysis_fixture(audio_path=flac_src)
+    cuesheet = make_cuesheet_fixture(source_sha256=analysis.source.sha256)
+
+    manifest = build_cedartoy_folder(
+        audio_path=flac_src,
+        analysis=analysis,
+        cuesheet=cuesheet,
+        out_dir=out_dir,
+        grammar="concert_visuals",
+        musicue_version="0.4.1-test",
+    )
+
+    out_wav = out_dir / "song.wav"
+    assert out_wav.exists()
+    info = sf.info(str(out_wav))
+    assert info.samplerate == sr
+    assert manifest.original_audio == "song.flac"
+
+
+def test_build_folder_atomic_on_failure(tmp_path, monkeypatch):
+    audio_src = tmp_path / "src" / "song.wav"
+    audio_src.parent.mkdir(parents=True)
+    _write_silent_wav(audio_src)
+
+    out_dir = tmp_path / "out" / "song"
+    analysis = make_analysis_fixture(audio_path=audio_src)
+    cuesheet = make_cuesheet_fixture(source_sha256=analysis.source.sha256)
+
+    # Force build_bundle to raise to simulate mid-build failure.
+    import musicue.compile.cedartoy_folder as mod
+    def boom(*a, **kw):
+        raise RuntimeError("synthetic build_bundle failure")
+    monkeypatch.setattr(mod, "build_bundle", boom, raising=False)
+    # build_bundle is imported inside build_cedartoy_folder; patch the
+    # source module too so the local import picks up the boom.
+    import musicue.compile.bundle as bundle_mod
+    monkeypatch.setattr(bundle_mod, "build_bundle", boom)
+
+    with pytest.raises(RuntimeError, match="synthetic"):
+        build_cedartoy_folder(
+            audio_path=audio_src,
+            analysis=analysis,
+            cuesheet=cuesheet,
+            out_dir=out_dir,
+            grammar="concert_visuals",
+            musicue_version="0.4.1-test",
+        )
+
+    # No folder at the target.
+    assert not out_dir.exists()
+    # And no leftover .cedartoy-tmp-* siblings.
+    assert not any(
+        p.name.startswith(".cedartoy-tmp-")
+        for p in out_dir.parent.iterdir()
+    )
