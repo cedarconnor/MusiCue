@@ -58,12 +58,24 @@ def _copy_audio_as_wav(src: Path, dest: Path) -> None:
     """Copy src to dest. If src is already a WAV, copy bytes; else decode.
 
     Native sample rate is preserved — no resampling.
+
+    Decoder strategy mirrors musicue.analysis.curves: try soundfile first
+    (fast for WAV/FLAC/OGG) and fall back to librosa.load (which goes
+    through audioread + ffmpeg) for compressed formats like M4A/MP3
+    that soundfile can't open.
     """
     if src.suffix.lower() == ".wav":
         shutil.copy2(src, dest)
         return
     import soundfile as sf
-    data, sr = sf.read(str(src), always_2d=False)
+    try:
+        data, sr = sf.read(str(src), always_2d=False)
+    except (sf.LibsndfileError, RuntimeError):
+        import librosa
+        # librosa returns (channels, samples) when mono=False; transpose
+        # so soundfile.write sees (samples, channels) or 1-D.
+        y, sr = librosa.load(str(src), sr=None, mono=False)
+        data = y.T if y.ndim == 2 else y
     sf.write(str(dest), data, sr, subtype="PCM_16")
 
 

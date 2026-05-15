@@ -184,6 +184,39 @@ def test_build_folder_decodes_non_wav_audio(tmp_path):
     assert manifest.original_audio == "song.flac"
 
 
+def test_copy_audio_falls_back_to_librosa_on_sf_failure(tmp_path, monkeypatch):
+    """Regression: M4A/MP3 audio that soundfile can't open must round-trip via librosa.
+
+    Caught in browser testing — MusiCue stores .m4a sources for some songs
+    and the original sf.read-only path raised "Format not recognised".
+    """
+    import soundfile as sf
+    from musicue.compile.cedartoy_folder import _copy_audio_as_wav
+
+    # Real flac fixture as the input (sf can read it), but we force sf.read
+    # to raise so the librosa fallback fires.
+    src = tmp_path / "song.flac"
+    import numpy as np
+    sf.write(str(src), np.zeros(11025, dtype="float32"), 44100)
+
+    original_sf_read = sf.read
+    def boom(*a, **kw):
+        raise sf.LibsndfileError(0, "Format not recognised (synthetic).")
+    monkeypatch.setattr("musicue.compile.cedartoy_folder.sf", sf, raising=False)
+    # patch sf.read inside the module's import scope
+    import musicue.compile.cedartoy_folder as mod  # noqa: F401
+    monkeypatch.setattr(sf, "read", boom)
+
+    dest = tmp_path / "out.wav"
+    _copy_audio_as_wav(src, dest)
+    # restore so the assertion below can sf.info(dest) without re-raising.
+    monkeypatch.setattr(sf, "read", original_sf_read)
+
+    assert dest.exists()
+    info = sf.info(str(dest))
+    assert info.samplerate == 44100
+
+
 def test_build_folder_atomic_on_failure(tmp_path, monkeypatch):
     audio_src = tmp_path / "src" / "song.wav"
     audio_src.parent.mkdir(parents=True)
