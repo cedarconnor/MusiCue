@@ -8,6 +8,7 @@ import Transport from "../components/Transport";
 import MetadataCard from "../components/MetadataCard";
 import CurvesPanel from "../components/CurvesPanel";
 import ExportModal from "../components/ExportModal";
+import SendToCedartoyDialog from "../components/SendToCedartoyDialog";
 import LabelChipStrip, {
   SelectedAnnotation,
 } from "../components/LabelChipStrip";
@@ -45,6 +46,7 @@ export default function Editor() {
   });
   const [cursorTime, setCursorTime] = useState<number>(0);
   const [exportOpen, setExportOpen] = useState<boolean>(false);
+  const [cedarToyOpen, setCedarToyOpen] = useState<boolean>(false);
   const [clickOn, setClickOn] = useState<boolean>(false);
   const [layout, setLayout] = useState<{ duration: number; pxPerSec: number }>({
     duration: 0,
@@ -163,10 +165,26 @@ export default function Editor() {
             borderRadius: 4,
             cursor: "pointer",
             fontSize: 13,
-            marginRight: 16,
+            marginRight: 8,
           }}
         >
           Export ▶
+        </button>
+        <button
+          onClick={() => setCedarToyOpen(true)}
+          title="Export a portable CedarToy project folder (audio + bundle + optional stems)."
+          style={{
+            background: "#1a1a1a",
+            color: "#bbb",
+            border: "1px solid #333",
+            padding: "6px 14px",
+            borderRadius: 4,
+            cursor: "pointer",
+            fontSize: 13,
+            marginRight: 16,
+          }}
+        >
+          → Send to CedarToy
         </button>
       </div>
       <ExportModal
@@ -175,6 +193,13 @@ export default function Editor() {
         analysisId={analysisId}
         songTitle={song?.title ?? "cuesheet"}
         onClose={() => setExportOpen(false)}
+      />
+      <SendToCedartoyDialog
+        open={cedarToyOpen}
+        songId={songId ?? ""}
+        analysisId={analysisId ?? ""}
+        songTitle={song?.title ?? "song"}
+        onClose={() => setCedarToyOpen(false)}
       />
       <CurvesPanel
         analysis={analysis}
