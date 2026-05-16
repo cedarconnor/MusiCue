@@ -30,7 +30,7 @@ def test_minimal_bundle_roundtrip():
     cs = CueSheet(source_sha256="x" * 64, grammar="concert_visuals", duration_sec=10.0)
     b = MusiCueBundle(cuesheet=cs, **_minimal_bundle_kwargs())
 
-    assert b.schema_version == "1.0"
+    assert b.schema_version == "1.1"
     assert b.stems_energy == {}
     roundtrip = MusiCueBundle.model_validate_json(b.model_dump_json())
     assert roundtrip.duration_sec == 10.0
@@ -53,3 +53,31 @@ def test_drum_onset_and_midi_note_shapes():
 def test_stem_energy_curve_shape():
     c = StemEnergyCurve(hop_sec=0.04, values=[0.1, 0.5, 0.9])
     assert len(c.values) == 3
+
+
+def test_bundle_carries_decoded_audio_sha256_optional():
+    """Schema 1.1 adds decoded_audio_sha256 as optional (None = legacy 1.0)."""
+    from musicue.schemas import CueSheet
+
+    cs = CueSheet(source_sha256="x" * 64, grammar="concert_visuals", duration_sec=10.0)
+    b = MusiCueBundle(
+        cuesheet=cs,
+        decoded_audio_sha256="b" * 64,
+        **_minimal_bundle_kwargs(),
+    )
+    assert b.decoded_audio_sha256 == "b" * 64
+    assert b.schema_version == "1.1"
+
+
+def test_bundle_legacy_schema_version_is_readable():
+    """A bundle dict without decoded_audio_sha256 still parses (round-trip from 1.0)."""
+    from musicue.schemas import CueSheet
+
+    cs = CueSheet(source_sha256="x" * 64, grammar="concert_visuals", duration_sec=10.0)
+    b = MusiCueBundle(
+        cuesheet=cs,
+        schema_version="1.0",
+        **_minimal_bundle_kwargs(),
+    )
+    assert b.decoded_audio_sha256 is None
+    assert b.schema_version == "1.0"
