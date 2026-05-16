@@ -54,7 +54,7 @@ def test_export_bundle_writes_sibling_file(tmp_path):
     assert expected.exists()
 
     bundle = MusiCueBundle.model_validate_json(expected.read_text())
-    assert bundle.schema_version == "1.0"
+    assert bundle.schema_version == "1.1"
     assert bundle.duration_sec == 1.0
 
 

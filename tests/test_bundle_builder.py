@@ -73,7 +73,7 @@ def test_sha_cross_check_raises_on_mismatch():
 
 def test_empty_analysis_yields_minimal_bundle():
     bundle = build_bundle(_analysis(), _cuesheet())
-    assert bundle.schema_version == "1.0"
+    assert bundle.schema_version == "1.1"
     assert bundle.duration_sec == 10.0
     assert bundle.sections == []
     assert bundle.drums == {}
