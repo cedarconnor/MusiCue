@@ -60,6 +60,34 @@ def test_manifest_emits_stems_omitted_reason_when_set():
     assert d["stems_omitted_reason"] == "cache missing and force_analyze=false"
 
 
+def test_bundle_decoded_audio_sha_matches_written_wav(tmp_path):
+    """Bundle 1.1: decoded_audio_sha256 equals sha256(song.wav as written)."""
+    import hashlib
+
+    audio_src = tmp_path / "src" / "song.wav"
+    audio_src.parent.mkdir(parents=True)
+    _write_silent_wav(audio_src)
+
+    out_dir = tmp_path / "out" / "song"
+    analysis = make_analysis_fixture(audio_path=audio_src)
+    cuesheet = make_cuesheet_fixture(source_sha256=analysis.source.sha256)
+
+    build_cedartoy_folder(
+        audio_path=audio_src,
+        analysis=analysis,
+        cuesheet=cuesheet,
+        out_dir=out_dir,
+        grammar="concert_visuals",
+        musicue_version="0.4.1-test",
+        exported_at="2026-05-16T00:00:00Z",
+    )
+
+    expected_sha = hashlib.sha256((out_dir / "song.wav").read_bytes()).hexdigest()
+    bundle_doc = json.loads((out_dir / "song.musicue.json").read_text("utf-8"))
+    assert bundle_doc["schema_version"] == "1.1"
+    assert bundle_doc["decoded_audio_sha256"] == expected_sha
+
+
 def test_build_folder_writes_audio_bundle_and_manifest(tmp_path):
     audio_src = tmp_path / "src" / "song.wav"
     audio_src.parent.mkdir(parents=True)

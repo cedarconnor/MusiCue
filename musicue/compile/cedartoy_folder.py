@@ -15,6 +15,7 @@ target path.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import tempfile
@@ -52,6 +53,14 @@ class CedarToyProjectManifest:
 
 def _iso_utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _sha256_file(path: Path, chunk: int = 1024 * 1024) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while data := f.read(chunk):
+            h.update(data)
+    return h.hexdigest()
 
 
 def _copy_audio_as_wav(src: Path, dest: Path) -> None:
@@ -144,9 +153,11 @@ def build_cedartoy_folder(
     # Sibling temp dir so the atomic rename is on the same filesystem.
     tmp = Path(tempfile.mkdtemp(prefix=".cedartoy-tmp-", dir=out_dir.parent))
     try:
-        _copy_audio_as_wav(audio_path, tmp / "song.wav")
+        wav_path = tmp / "song.wav"
+        _copy_audio_as_wav(audio_path, wav_path)
 
         bundle = build_bundle(analysis, cuesheet)
+        bundle.decoded_audio_sha256 = _sha256_file(wav_path)
         (tmp / "song.musicue.json").write_text(
             bundle.model_dump_json(indent=2), encoding="utf-8"
         )
