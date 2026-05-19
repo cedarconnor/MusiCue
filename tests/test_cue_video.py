@@ -636,6 +636,28 @@ def test_render_uses_audio_duration(tmp_path, full_cuesheet, short_wav, caplog) 
     assert 1.8 <= duration <= 2.2
 
 
+def test_probe_audio_duration_falls_back_to_ffprobe_when_soundfile_fails(
+    short_wav, monkeypatch
+) -> None:
+    """soundfile can't open m4a/mp3; the probe must fall back to ffprobe.
+
+    Simulates the failure by monkeypatching sf.info to raise; verifies the
+    fallback path produces the correct duration.
+    """
+    if not _have_ffmpeg():
+        pytest.skip("ffprobe not on PATH")
+
+    from musicue.visualize import cue_video as cv
+
+    def _explode(*a, **kw):
+        raise RuntimeError("simulated libsndfile failure")
+
+    monkeypatch.setattr(cv.sf, "info", _explode)
+
+    duration = cv._probe_audio_duration(short_wav)
+    assert 1.9 <= duration <= 2.1
+
+
 # ---- CLI tests ----
 
 
