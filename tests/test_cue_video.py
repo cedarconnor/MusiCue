@@ -444,3 +444,37 @@ def test_lane_renderer_ramp_draws_line() -> None:
     assert max(xs) <= 2.0 + 1e-6
 
     plt.close(fig)
+
+
+def test_lane_renderer_continuous_clips_to_window() -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.collections import PolyCollection
+
+    from musicue.schemas import CueTrack
+    from musicue.visualize.lanes import draw_continuous_lane
+
+    track = CueTrack(
+        name="energy",
+        type="continuous",
+        timescale="macro",
+        hop_sec=0.1,
+        values=[float(i) for i in range(100)],
+    )
+    fig, ax = plt.subplots()
+    ax.set_xlim(4.0, 6.0)
+    ax.set_ylim(0.0, 1.0)
+
+    draw_continuous_lane(ax, track, t_now=5.0, window_sec=2.0)
+
+    polys = [c for c in ax.collections if isinstance(c, PolyCollection)]
+    assert len(polys) >= 1
+
+    lines = ax.get_lines()
+    assert lines
+    xs = lines[0].get_xdata()
+    assert min(xs) >= 4.0 - 1e-6
+    assert max(xs) <= 6.0 + 1e-6
+
+    plt.close(fig)

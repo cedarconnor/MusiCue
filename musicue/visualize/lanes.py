@@ -249,3 +249,34 @@ def draw_ramp_lane(
             alpha = 0.4
             lw = 1.5
         ax.plot(xs, ys, color=color, alpha=alpha, linewidth=lw)
+
+
+def draw_continuous_lane(
+    ax: Axes,
+    track: CueTrack,
+    t_now: float,
+    window_sec: float,
+) -> None:
+    """Render a continuous track: line + fill clipped to the window."""
+    values = track.values or []
+    hop = float(track.hop_sec or 0.0)
+    if not values or hop <= 0:
+        return
+    color = track_color(track.name)
+    x0, x1 = ax.get_xlim()
+    i_lo = max(0, int(np.floor(x0 / hop)))
+    i_hi = min(len(values), int(np.ceil(x1 / hop)) + 1)
+    if i_hi <= i_lo:
+        return
+    xs = np.arange(i_lo, i_hi) * hop
+    ys = np.asarray(values[i_lo:i_hi], dtype=float)
+
+    lo = float(min(values))
+    hi = float(max(values))
+    if hi - lo > 1e-9:
+        ys_norm = (ys - lo) / (hi - lo)
+    else:
+        ys_norm = np.full_like(ys, 0.5)
+
+    ax.fill_between(xs, 0.0, ys_norm, color=color, alpha=0.4, linewidth=0)
+    ax.plot(xs, ys_norm, color=color, alpha=0.9, linewidth=1.5)
