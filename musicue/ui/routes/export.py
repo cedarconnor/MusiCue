@@ -31,7 +31,7 @@ _EXPORTERS: dict[str, tuple[str, str]] = {
     "touchdesigner": ("musicue.exporters.touchdesigner", ".csv"),
     "osc": ("musicue.exporters.osc", "_osc.json"),
     "houdini": ("musicue.exporters.houdini", "_houdini.csv"),
-    "disguise": ("musicue.exporters.disguise", "_disguise.csv"),
+    "disguise": ("musicue.exporters.disguise", "_cue_table.txt"),
     "unreal": ("musicue.exporters.unreal", "_unreal.json"),
     "edl": ("musicue.exporters.edl", ".edl"),
     "fcpxml": ("musicue.exporters.fcpxml", ".fcpxml"),

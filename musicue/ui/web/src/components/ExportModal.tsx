@@ -13,7 +13,7 @@ const FORMATS: Array<{ key: ExportFormat; label: string; group?: string }> = [
   { key: "touchdesigner", label: "TouchDesigner (CHOP CSV)", group: "Real-time" },
   { key: "osc", label: "OSC (JSON bundle)", group: "Real-time" },
   { key: "houdini", label: "Houdini CHOP CSV", group: "VFX" },
-  { key: "disguise", label: "disguise cue list", group: "Show control" },
+  { key: "disguise", label: "disguise cue table (_cue_table.txt)", group: "Show control" },
   { key: "unreal", label: "Unreal Sequencer (JSON)", group: "Real-time" },
   { key: "edl", label: "EDL (CMX 3600)", group: "Editorial" },
   { key: "fcpxml", label: "FCPXML (.fcpxml)", group: "Editorial" },
