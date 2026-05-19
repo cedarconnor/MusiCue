@@ -294,3 +294,56 @@ def test_fire_brightness_continuous_outside_range_is_zero() -> None:
 
     track = _continuous_track()
     assert fire_brightness(track, t_now=5.0) == 0.0
+
+
+def test_lane_renderer_impulse_draws_ticks_and_flash() -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
+    from musicue.visualize.lanes import draw_impulse_lane
+
+    track = _impulse_track([1.0, 1.5, 2.0])
+    fig, ax = plt.subplots()
+    ax.set_xlim(0.0, 5.0)
+    ax.set_ylim(0.0, 1.0)
+
+    draw_impulse_lane(ax, track, t_now=1.02, window_sec=5.0)
+
+    # Vertical ticks from axvline — find Line2D children with xs[0]==xs[1]
+    tick_xs = []
+    for line in ax.get_lines():
+        xs = line.get_xdata()
+        if len(xs) == 2 and xs[0] == xs[1]:
+            tick_xs.append(float(xs[0]))
+    tick_xs_sorted = sorted(tick_xs)
+    assert len(tick_xs_sorted) >= 3
+    assert tick_xs_sorted[:3] == pytest.approx([1.0, 1.5, 2.0], abs=0.01)
+
+    # Flash overlay: a Rectangle with non-zero alpha
+    rects = [p for p in ax.patches if isinstance(p, Rectangle)]
+    assert any(p.get_alpha() and p.get_alpha() > 0 for p in rects)
+
+    plt.close(fig)
+
+
+def test_lane_renderer_impulse_no_overlay_when_no_event_firing() -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
+    from musicue.visualize.lanes import draw_impulse_lane
+
+    track = _impulse_track([10.0])  # event far in the future
+    fig, ax = plt.subplots()
+    ax.set_xlim(0.0, 5.0)
+    ax.set_ylim(0.0, 1.0)
+
+    draw_impulse_lane(ax, track, t_now=1.0, window_sec=2.0)
+
+    rects = [p for p in ax.patches if isinstance(p, Rectangle)]
+    assert all((not p.get_alpha()) or p.get_alpha() < 0.01 for p in rects)
+
+    plt.close(fig)

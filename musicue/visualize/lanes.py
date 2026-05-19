@@ -1,7 +1,12 @@
 """Per-type lane renderers + fire-panel brightness."""
 from __future__ import annotations
 
+from matplotlib.axes import Axes
+from matplotlib.patches import Rectangle
+
 from musicue.schemas import CueTrack
+from musicue.visualize.colors import track_color
+from musicue.visualize.cue_video import events_in_window
 from musicue.visualize.envelopes import ease, sample_adsr
 
 _STEP_FLASH_SEC = 0.25
@@ -79,3 +84,32 @@ def fire_brightness(track: CueTrack, t_now: float) -> float:
         return max(0.0, min(1.0, (v - lo) / (hi - lo)))
 
     return 0.0
+
+
+def draw_impulse_lane(
+    ax: Axes,
+    track: CueTrack,
+    t_now: float,
+    window_sec: float,
+) -> None:
+    """Render an impulse track: thin ticks at event times + flash overlay."""
+    color = track_color(track.name)
+    events = events_in_window(track.events or [], t_now, window_sec, key="t")
+    for ev in events:
+        t = float(ev.get("t", 0.0))
+        strength = float(ev.get("strength", ev.get("score", 1.0)))
+        alpha = max(0.2, min(1.0, strength))
+        ax.axvline(t, color=color, linewidth=1.6, alpha=alpha)
+
+    brightness = fire_brightness(track, t_now)
+    if brightness > 0.01:
+        x0, x1 = ax.get_xlim()
+        ax.add_patch(
+            Rectangle(
+                (x0, 0.0), x1 - x0, 1.0,
+                facecolor="white",
+                edgecolor="none",
+                alpha=0.15 * brightness,
+                zorder=0,
+            )
+        )
