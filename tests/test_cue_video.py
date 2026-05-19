@@ -478,3 +478,48 @@ def test_lane_renderer_continuous_clips_to_window() -> None:
     assert max(xs) <= 6.0 + 1e-6
 
     plt.close(fig)
+
+
+def test_format_timecode_decimal() -> None:
+    from musicue.visualize.lanes import format_timecode
+
+    assert format_timecode(0.0) == "00:00:00.0"
+    assert format_timecode(65.5) == "00:01:05.5"
+    assert format_timecode(3661.25) == "01:01:01.2"
+
+
+def test_bpm_at_returns_closest_tempo() -> None:
+    from musicue.visualize.lanes import bpm_at
+
+    tempo_map = [
+        {"t": 0.0, "bpm": 120.0},
+        {"t": 30.0, "bpm": 140.0},
+        {"t": 60.0, "bpm": 100.0},
+    ]
+    assert bpm_at(tempo_map, 0.0) == 120.0
+    assert bpm_at(tempo_map, 15.0) == 120.0
+    assert bpm_at(tempo_map, 45.0) == 140.0
+    assert bpm_at(tempo_map, 100.0) == 100.0
+
+
+def test_bpm_at_empty_returns_none() -> None:
+    from musicue.visualize.lanes import bpm_at
+
+    assert bpm_at([], 5.0) is None
+
+
+def test_current_section_label_from_step_track(full_cuesheet) -> None:
+    from musicue.visualize.lanes import current_section_label
+
+    assert current_section_label(full_cuesheet, t_now=1.0) == "intro"
+    assert current_section_label(full_cuesheet, t_now=6.0) == "chorus"
+
+
+def test_current_section_label_missing_track() -> None:
+    from musicue.schemas import CueSheet
+    from musicue.visualize.lanes import current_section_label
+
+    empty = CueSheet(
+        source_sha256="x", grammar="g", duration_sec=1.0, tracks=[]
+    )
+    assert current_section_label(empty, t_now=0.0) is None

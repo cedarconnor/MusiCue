@@ -1,16 +1,19 @@
 """Per-type lane renderers + fire-panel brightness."""
 from __future__ import annotations
 
+from typing import Sequence
+
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
 
-from musicue.schemas import CueTrack
+from musicue.schemas import CueSheet, CueTrack
 from musicue.visualize.colors import section_palette, track_color
 from musicue.visualize.cue_video import events_in_window, spanning_events_in_window
 from musicue.visualize.envelopes import ease, sample_adsr
 
 _STEP_FLASH_SEC = 0.25
+_SECTION_KEYWORDS = {"intro", "verse", "chorus", "bridge", "drop", "outro", "pre"}
 
 
 def fire_brightness(track: CueTrack, t_now: float) -> float:
@@ -280,3 +283,83 @@ def draw_continuous_lane(
 
     ax.fill_between(xs, 0.0, ys_norm, color=color, alpha=0.4, linewidth=0)
     ax.plot(xs, ys_norm, color=color, alpha=0.9, linewidth=1.5)
+
+
+def format_timecode(t_sec: float) -> str:
+    """Decimal timecode HH:MM:SS.s."""
+    if t_sec < 0:
+        t_sec = 0.0
+    h = int(t_sec // 3600)
+    m = int((t_sec % 3600) // 60)
+    s = t_sec % 60
+    return f"{h:02d}:{m:02d}:{s:04.1f}"
+
+
+def bpm_at(tempo_map: Sequence[dict], t_now: float) -> float | None:
+    """Return the BPM in effect at t_now. Picks the latest entry whose
+    `t` is <= t_now. None if the map is empty."""
+    if not tempo_map:
+        return None
+    best: float | None = None
+    for entry in tempo_map:
+        if float(entry.get("t", 0.0)) <= t_now:
+            best = float(entry.get("bpm", 0.0))
+        else:
+            break
+    if best is None:
+        return float(tempo_map[0].get("bpm", 0.0))
+    return best
+
+
+def _looks_like_section_track(track: CueTrack) -> bool:
+    if track.type != "step":
+        return False
+    for ev in track.events or []:
+        label = str(ev.get("label", "")).lower()
+        if any(label.startswith(k) for k in _SECTION_KEYWORDS):
+            return True
+    return False
+
+
+def current_section_label(cuesheet: CueSheet, t_now: float) -> str | None:
+    """Walk every step track until we find one with section-like labels;
+    return its currently active label at t_now."""
+    for track in cuesheet.tracks:
+        if not _looks_like_section_track(track):
+            continue
+        active: str | None = None
+        for ev in track.events or []:
+            if float(ev.get("t", 0.0)) <= t_now:
+                active = str(ev.get("label", ""))
+            else:
+                break
+        return active
+    return None
+
+
+def draw_header(
+    ax: Axes,
+    cuesheet: CueSheet,
+    t_now: float,
+) -> None:
+    """Draw the header strip on a dedicated Axes."""
+    ax.set_facecolor((0.05, 0.05, 0.05))
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    tc = format_timecode(t_now)
+    ax.text(0.02, 0.5, tc, color="white", fontsize=18,
+            family="monospace", va="center", ha="left")
+
+    bpm = bpm_at(cuesheet.tempo_map or [], t_now)
+    if bpm is not None and bpm > 0:
+        ax.text(0.32, 0.5, f"BPM {bpm:.0f}", color="white",
+                fontsize=18, family="monospace", va="center", ha="left")
+
+    section = current_section_label(cuesheet, t_now)
+    if section:
+        ax.text(0.62, 0.5, section.upper(),
+                color=section_palette(section), fontsize=18,
+                weight="bold", va="center", ha="left")
