@@ -64,7 +64,7 @@ if ($LASTEXITCODE -ne 0) { throw "PyTorch CUDA install failed (exit $LASTEXITCOD
 # 4. Core install (hard fail)
 # -----------------------------------------------------------------------------
 Write-Step "Installing core dependencies (this may take several minutes)"
-& uv pip install -e ".[dev,ui,midi,osc]" basic-pitch
+& uv pip install -e ".[dev,ui,midi,osc]" basic-pitch "setuptools<81"
 if ($LASTEXITCODE -ne 0) { throw "Core install failed (exit $LASTEXITCODE)" }
 
 # -----------------------------------------------------------------------------
@@ -80,11 +80,19 @@ if ($LASTEXITCODE -ne 0) {
 # 6. All-In-One (soft warn — historically painful on Windows)
 # -----------------------------------------------------------------------------
 # allin1 doesn't list madmom as a transitive dep, but it imports it at
-# runtime. madmom builds from sdist on Windows (needs Visual Studio Build
-# Tools + Cython); we attempt it separately so a madmom build failure
-# doesn't poison the allin1 install.
-Write-Step "Installing madmom (allin1 dependency, needs VS Build Tools)"
-& uv pip install madmom
+# runtime. madmom's last PyPI release (0.16.1) uses `from collections
+# import MutableSequence`, which Python 3.10+ removed — so we install
+# madmom from the upstream master branch (0.17.dev0). That requires
+# Cython at build time and --no-build-isolation so uv doesn't try to
+# resolve Cython for a transient build env.
+Write-Step "Installing Cython (build dep for madmom)"
+& uv pip install Cython
+if ($LASTEXITCODE -ne 0) {
+    Soft-Warn "cython" "Cython install failed; madmom build will fail too."
+}
+
+Write-Step "Installing madmom from git (needs VS Build Tools on Windows)"
+& uv pip install --no-build-isolation "git+https://github.com/CPJKU/madmom.git"
 if ($LASTEXITCODE -ne 0) {
     Soft-Warn "madmom" "madmom build failed. Install 'Visual Studio Build Tools' (Desktop dev with C++) from visualstudio.microsoft.com and re-run install.bat. Without madmom, All-In-One can't load and beats fall back to librosa (no section detection)."
 }
@@ -93,6 +101,16 @@ Write-Step "Installing All-In-One (optional)"
 & uv pip install allin1
 if ($LASTEXITCODE -ne 0) {
     Soft-Warn "allin1" "All-In-One install failed; beat detection will use the librosa fallback (no sections)."
+}
+
+# allin1's NATTEN attention modules import procedural functions
+# (natten1dqkrpb, natten1dav, natten2dqkrpb, natten2dav) that were
+# removed in natten >= 0.17. Patch the installed natten with a pure-
+# PyTorch shim so allin1 keeps working without pinning to ancient natten.
+Write-Step "Patching NATTEN with legacy-compat shim"
+& uv run python (Join-Path $PSScriptRoot "patch_natten.py")
+if ($LASTEXITCODE -ne 0) {
+    Soft-Warn "natten" "NATTEN patch failed; allin1 may fail to import. See scripts/patch_natten.py."
 }
 
 # -----------------------------------------------------------------------------
