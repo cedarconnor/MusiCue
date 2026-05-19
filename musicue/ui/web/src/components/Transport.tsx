@@ -8,6 +8,10 @@ interface Props {
   analysisId: string;
   clickOn: boolean;
   onClickOnChange: (v: boolean) => void;
+  /** When a stem is soloed, Timeline plays the per-stem click_marks audio
+   *  layered on the stem WAV. The master click here must pause so the user
+   *  doesn't hear "full mix + stem-only clicks" at the same time. */
+  solo?: "drums" | "bass" | "vocals" | "other" | null;
 }
 
 export default function Transport({
@@ -16,6 +20,7 @@ export default function Transport({
   analysisId,
   clickOn,
   onClickOnChange,
+  solo,
 }: Props) {
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -71,9 +76,14 @@ export default function Transport({
     const click = clickAudioRef.current;
     if (!click) return;
 
+    // The master click only plays when clickOn AND no stem is soloed.
+    // When solo is set, Timeline plays the per-stem click_marks audio
+    // instead, and the master click stays paused.
+    const masterShouldPlay = () => clickOn && !solo;
+
     const onPlay = () => {
       click.currentTime = ws.getCurrentTime();
-      if (clickOn) click.play().catch(() => {});
+      if (masterShouldPlay()) click.play().catch(() => {});
     };
     const onPause = () => click.pause();
     const onSeek = () => {
@@ -81,7 +91,10 @@ export default function Transport({
     };
     const onTime = () => {
       // Drift correction: snap if drift > 50ms.
-      if (clickOn && Math.abs(click.currentTime - ws.getCurrentTime()) > 0.05) {
+      if (
+        masterShouldPlay() &&
+        Math.abs(click.currentTime - ws.getCurrentTime()) > 0.05
+      ) {
         click.currentTime = ws.getCurrentTime();
       }
     };
@@ -95,7 +108,21 @@ export default function Transport({
       ws.un("seeking", onSeek);
       ws.un("audioprocess", onTime);
     };
-  }, [ws, clickOn]);
+  }, [ws, clickOn, solo]);
+
+  // React to solo flips while playback is mid-flight: when the user
+  // solos a stem with click on, pause the master immediately. When they
+  // un-solo, resume.
+  useEffect(() => {
+    const click = clickAudioRef.current;
+    if (!click || !ws) return;
+    if (solo) {
+      click.pause();
+    } else if (clickOn && ws.isPlaying()) {
+      click.currentTime = ws.getCurrentTime();
+      click.play().catch(() => {});
+    }
+  }, [solo, clickOn, ws]);
 
   async function toggleClick() {
     if (!clickOn) {

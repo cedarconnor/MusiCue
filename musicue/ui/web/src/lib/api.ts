@@ -169,6 +169,14 @@ export function clickWavUrl(songId: string, analysisId: string): string {
   return `/api/songs/${songId}/analyses/${analysisId}/click.wav?t=${Date.now()}`;
 }
 
+export function clickMarksUrl(
+  songId: string,
+  analysisId: string,
+  stem: string,
+): string {
+  return `/api/songs/${songId}/analyses/${analysisId}/click_marks/${stem}?t=${Date.now()}`;
+}
+
 export function sourceAudioUrl(songId: string): string {
   return `/api/songs/${songId}/source`;
 }

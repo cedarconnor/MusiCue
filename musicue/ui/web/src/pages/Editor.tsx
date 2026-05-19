@@ -47,6 +47,7 @@ export default function Editor() {
   const [cursorTime, setCursorTime] = useState<number>(0);
   const [exportOpen, setExportOpen] = useState<boolean>(false);
   const [cedarToyOpen, setCedarToyOpen] = useState<boolean>(false);
+  const [solo, setSolo] = useState<"drums" | "bass" | "vocals" | "other" | null>(null);
   const [cueVideoHintDismissed, setCueVideoHintDismissed] = useState<boolean>(
     () => {
       try {
@@ -190,6 +191,8 @@ export default function Editor() {
         onCursorTime={setCursorTime}
         onLayout={setLayout}
         clickOn={clickOn}
+        solo={solo}
+        onSoloChange={setSolo}
       />
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ flex: 1 }}>
@@ -199,6 +202,7 @@ export default function Editor() {
             analysisId={analysisId}
             clickOn={clickOn}
             onClickOnChange={setClickOn}
+            solo={solo}
           />
         </div>
         <a

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
 import {
   AnalysisJSON,
+  clickMarksUrl,
   getPeaks,
   sourceAudioUrl,
   stemAudioUrl,
@@ -28,6 +29,11 @@ interface Props {
    *  drives a separate click <audio> element that mixes the source with
    *  the click impulses, so playing both would double the source. */
   clickOn?: boolean;
+  /** Lifted from Timeline so Transport can also pause the master click
+   *  when a stem is soloed (and we play that stem's click_marks WAV
+   *  instead, layered over the stem audio). */
+  solo: "drums" | "bass" | "vocals" | "other" | null;
+  onSoloChange: (s: "drums" | "bass" | "vocals" | "other" | null) => void;
 }
 
 const STEMS = ["drums", "bass", "vocals", "other"] as const;
@@ -74,6 +80,8 @@ export default function Timeline({
   onCursorTime,
   onLayout,
   clickOn,
+  solo,
+  onSoloChange,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mixHostRef = useRef<HTMLDivElement>(null);
@@ -93,9 +101,17 @@ export default function Timeline({
   });
   const fitPpsRef = useRef<number>(1);
   const [zoom, setZoom] = useState(1);
-  const [solo, setSolo] = useState<Stem | null>(null);
   const [pps, setPps] = useState(1);
   const [duration, setDuration] = useState(0);
+  // Refs to per-stem click_marks <audio> elements. Layered on top of
+  // the corresponding stem WAV when the user solos a stem with the
+  // click track on, so they hear "drum stem + drum-only clicks" etc.
+  const clickMarksRefs = useRef<Record<Stem, HTMLAudioElement | null>>({
+    drums: null,
+    bass: null,
+    vocals: null,
+    other: null,
+  });
 
   function applyZoom(zoomFactor: number) {
     const ws = mixRef.current;
@@ -176,8 +192,11 @@ export default function Timeline({
         const t = mix.getCurrentTime();
         for (const stem of STEMS) {
           const ws = stemsRef.current[stem];
-          if (!ws) continue;
-          if (Math.abs(ws.getCurrentTime() - t) > 0.04) ws.setTime(t);
+          if (ws && Math.abs(ws.getCurrentTime() - t) > 0.04) ws.setTime(t);
+          const click = clickMarksRefs.current[stem];
+          if (click && Math.abs(click.currentTime - t) > 0.05) {
+            click.currentTime = t;
+          }
         }
       };
       const syncOnPlay = () => {
@@ -186,13 +205,23 @@ export default function Timeline({
           // hasn't decoded yet doesn't surface as an unhandled rejection.
           stemsRef.current[stem]?.play()?.catch?.(() => {});
         }
+        // The click_marks audio only plays when (solo === this stem && clickOn);
+        // the mute matrix effect already handles that. We just need to sync
+        // currentTime here.
       };
       const syncOnPause = () => {
-        for (const stem of STEMS) stemsRef.current[stem]?.pause();
+        for (const stem of STEMS) {
+          stemsRef.current[stem]?.pause();
+          clickMarksRefs.current[stem]?.pause();
+        }
       };
       const syncOnSeek = () => {
         const t = mix.getCurrentTime();
-        for (const stem of STEMS) stemsRef.current[stem]?.setTime(t);
+        for (const stem of STEMS) {
+          stemsRef.current[stem]?.setTime(t);
+          const click = clickMarksRefs.current[stem];
+          if (click) click.currentTime = t;
+        }
       };
       mix.on("audioprocess", syncSlaves);
       mix.on("play", syncOnPlay);
@@ -265,20 +294,38 @@ export default function Timeline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom]);
 
-  // Mix + stem mute state. Three inputs feed into a single decision so
-  // Transport's "click is on, mute the mix" intent can't be clobbered by a
-  // solo toggle (and vice versa):
-  //  - clickOn → mix must be muted (click WAV mixes the source itself).
-  //  - solo !== null → mix must be muted, target stem audible.
-  //  - default → mix audible, stems muted.
+  // Mix + stem mute matrix. Three inputs decide audibility:
+  //   - clickOn alone → mix muted, all stems muted, master click plays
+  //     (Transport owns the master click <audio>; it stops itself when
+  //     solo is set, see below).
+  //   - solo set, clickOn off → mix muted, soloed stem audible.
+  //   - solo set, clickOn on → mix muted, soloed stem audible, master
+  //     click muted (Transport handles), this lane's click_marks plays
+  //     so the user hears "stem audio + stem-only clicks".
+  //   - neither → mix audible, stems muted.
   useEffect(() => {
     const mix = mixRef.current;
     if (mix) mix.setMuted(solo !== null || !!clickOn);
     for (const stem of STEMS) {
       const ws = stemsRef.current[stem];
       if (!ws) continue;
-      // When click is on we mute the stems too — only the click WAV plays.
-      ws.setMuted(solo !== stem || !!clickOn);
+      // Soloed stem is audible regardless of clickOn; non-soloed stems
+      // and all stems when nothing is soloed stay muted.
+      ws.setMuted(solo !== stem);
+    }
+    // Mute every click_marks audio; only the matching one plays when
+    // we're in solo + clickOn mode.
+    for (const stem of STEMS) {
+      const el = clickMarksRefs.current[stem];
+      if (!el) continue;
+      if (solo === stem && clickOn) {
+        if (el.paused && mix && mix.isPlaying()) {
+          el.currentTime = mix.getCurrentTime();
+          el.play().catch(() => {});
+        }
+      } else {
+        el.pause();
+      }
     }
   }, [solo, clickOn]);
 
@@ -332,7 +379,7 @@ export default function Timeline({
             >
               <div>{stem}</div>
               <button
-                onClick={() => setSolo(solo === stem ? null : stem)}
+                onClick={() => onSoloChange(solo === stem ? null : stem)}
                 style={{
                   fontSize: 10,
                   padding: "2px 6px",
@@ -435,6 +482,18 @@ export default function Timeline({
           {zoom.toFixed(1)}x
         </span>
       </div>
+      {/* Per-stem click_marks <audio>. preload="auto" + the URL only set
+       *  when needed keeps the four files lazy on first paint. */}
+      {STEMS.map((stem) => (
+        <audio
+          key={`cm-${stem}`}
+          ref={(el) => {
+            clickMarksRefs.current[stem] = el;
+          }}
+          src={clickMarksUrl(songId, analysisId, stem)}
+          preload="metadata"
+        />
+      ))}
     </div>
   );
 }
