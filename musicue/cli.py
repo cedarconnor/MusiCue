@@ -5,6 +5,8 @@ from typing import Optional
 
 import typer
 
+from musicue.visualize.cue_video import render_cue_video
+
 app = typer.Typer(name="musicue", help="Convert songs to typed event timelines for DCC tools.")
 
 _EXPORTERS = {
@@ -174,6 +176,56 @@ def render(
     else:
         result = _process_one(song)
         typer.echo(f"Rendered to {result}")
+
+
+@app.command(name="cue-video")
+def cue_video(
+    cuesheet_path: Path = typer.Argument(..., help="Path to cuesheet.json"),
+    audio: Optional[Path] = typer.Option(
+        None, "--audio", "-a",
+        help="Source audio. Auto-discovered as a sibling source.* if omitted.",
+    ),
+    out: Optional[Path] = typer.Option(
+        None, "--out", "-o",
+        help="Output MP4 path. Defaults to <cuesheet>.mp4 next to the input.",
+    ),
+    fps: float = typer.Option(29.97, "--fps", help="Frame rate. Default 29.97 (NTSC)."),
+    width: int = typer.Option(1280, "--width"),
+    height: int = typer.Option(720, "--height"),
+    window_sec: float = typer.Option(5.0, "--window-sec", help="Visible time window."),
+    workers: Optional[int] = typer.Option(None, "--workers", "-w"),
+) -> None:
+    """Render a per-channel video preview of a compiled cuesheet."""
+    from musicue.schemas import CueSheet
+
+    cuesheet = CueSheet.model_validate_json(cuesheet_path.read_text())
+
+    audio_path = audio
+    if audio_path is None:
+        for candidate in cuesheet_path.parent.glob("source.*"):
+            if candidate.is_file():
+                audio_path = candidate
+                break
+    if audio_path is None or not audio_path.exists():
+        typer.echo(
+            "Error: --audio not provided and no sibling source.* found "
+            f"next to {cuesheet_path}.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    # Snap default 29.97 to the exact NTSC ratio.
+    if abs(fps - 29.97) < 0.01:
+        from musicue.visualize.cue_video import NTSC_FPS
+        fps = NTSC_FPS
+
+    out_path = out or cuesheet_path.with_suffix(".mp4")
+    render_cue_video(
+        cuesheet, audio_path, out_path,
+        fps=fps, width=width, height=height,
+        window_sec=window_sec, workers=workers,
+    )
+    typer.echo(f"Cue video written to {out_path}")
 
 
 @app.command()

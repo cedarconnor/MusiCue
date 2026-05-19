@@ -634,3 +634,52 @@ def test_render_uses_audio_duration(tmp_path, full_cuesheet, short_wav, caplog) 
     meta = _ffprobe(out)
     duration = float(meta["format"]["duration"])
     assert 1.8 <= duration <= 2.2
+
+
+# ---- CLI tests ----
+
+
+def test_cli_auto_discovers_audio_in_run_dir(
+    tmp_path, full_cuesheet, short_wav, monkeypatch
+) -> None:
+    """When --audio is omitted, the CLI should look for source.* siblings."""
+    import shutil as _sh
+    from pathlib import Path
+
+    from typer.testing import CliRunner
+
+    from musicue.cli import app
+
+    run_dir = tmp_path / "abc"
+    run_dir.mkdir()
+    cs_path = run_dir / "cuesheet.json"
+    cs_path.write_text(full_cuesheet.model_dump_json())
+    source = run_dir / "source.wav"
+    _sh.copy(short_wav, source)
+
+    captured = {}
+
+    def fake_render(cuesheet, audio_path, out_path, **kw):
+        captured["audio"] = Path(audio_path)
+        captured["out"] = Path(out_path)
+        Path(out_path).write_bytes(b"FAKE")
+
+    monkeypatch.setattr("musicue.cli.render_cue_video", fake_render)
+    runner = CliRunner()
+    result = runner.invoke(app, ["cue-video", str(cs_path)])
+    assert result.exit_code == 0, result.stdout
+    assert captured["audio"] == source
+    assert captured["out"] == cs_path.with_suffix(".mp4")
+
+
+def test_cli_errors_when_audio_not_found(tmp_path, full_cuesheet) -> None:
+    from typer.testing import CliRunner
+
+    from musicue.cli import app
+
+    cs_path = tmp_path / "cuesheet.json"
+    cs_path.write_text(full_cuesheet.model_dump_json())
+    runner = CliRunner()
+    result = runner.invoke(app, ["cue-video", str(cs_path)])
+    # Missing audio + no sibling source.* should exit non-zero.
+    assert result.exit_code != 0
