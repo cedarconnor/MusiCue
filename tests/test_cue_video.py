@@ -101,3 +101,64 @@ def test_type_tint_known_types() -> None:
     for t in ("impulse", "envelope", "step", "ramp", "continuous"):
         r, g, b = type_tint(t)
         assert (r + g + b) / 3 < 0.4
+
+
+def test_plan_frames_ntsc_rate() -> None:
+    from musicue.visualize.cue_video import plan_frames
+
+    # 2.05 s at 29.97 fps (30000/1001) -> ~61.45 frames -> 61 rounded
+    n = plan_frames(duration_sec=2.05, fps=30000 / 1001)
+    assert n == 61
+
+
+def test_plan_frames_clean_30_fps() -> None:
+    from musicue.visualize.cue_video import plan_frames
+
+    assert plan_frames(duration_sec=2.0, fps=30.0) == 60
+    assert plan_frames(duration_sec=10.0, fps=24.0) == 240
+
+
+def test_frame_time_ntsc() -> None:
+    from musicue.visualize.cue_video import frame_time
+
+    fps = 30000 / 1001
+    # Frame 30 at 29.97 -> 30 * 1001 / 30000 = 1.001 s
+    assert frame_time(30, fps) == pytest.approx(1.001, abs=1e-6)
+
+
+def test_events_in_window_returns_intersecting_only() -> None:
+    from musicue.visualize.cue_video import events_in_window
+
+    events = [
+        {"t": 0.0}, {"t": 1.0}, {"t": 2.0}, {"t": 3.0}, {"t": 10.0},
+    ]
+    sliced = events_in_window(events, t_now=1.5, window_sec=2.0, key="t")
+    assert [e["t"] for e in sliced] == [1.0, 2.0]
+
+
+def test_spanning_events_in_window() -> None:
+    from musicue.visualize.cue_video import spanning_events_in_window
+
+    events = [
+        {"t_start": 0.0, "t_end": 0.4},   # before window
+        {"t_start": 0.5, "t_end": 2.5},   # straddles window
+        {"t_start": 1.0, "t_end": 2.0},   # fully inside
+        {"t_start": 10.0, "t_end": 11.0}, # after window
+    ]
+    sliced = spanning_events_in_window(
+        events, t_now=1.5, window_sec=2.0,
+        start_key="t_start", end_key="t_end",
+    )
+    assert len(sliced) == 2
+    assert sliced[0]["t_start"] == 0.5
+    assert sliced[1]["t_start"] == 1.0
+
+
+def test_events_in_window_uses_bisect_on_large_input() -> None:
+    from musicue.visualize.cue_video import events_in_window
+
+    events = [{"t": i * 0.01} for i in range(10000)]  # 0..99.99 s
+    sliced = events_in_window(events, t_now=50.0, window_sec=0.2, key="t")
+    ts = [e["t"] for e in sliced]
+    assert all(49.9 <= t <= 50.1 for t in ts)
+    assert len(ts) == 21
