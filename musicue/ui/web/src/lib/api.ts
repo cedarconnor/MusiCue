@@ -12,6 +12,7 @@ export interface Song {
   // legacy compatibility for code paths that still expect these
   has_analysis?: boolean;
   analysis_ids?: string[];
+  has_cue_video?: boolean;
 }
 
 export interface ListSongsParams {

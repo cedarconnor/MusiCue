@@ -123,6 +123,18 @@ def list_songs(
     return {"songs": rows}
 
 
+def _find_cue_video(storage, song_id: str) -> Path | None:
+    """Locate the first cue_video.mp4 across this song's analysis runs."""
+    analyses_root = storage.analyses_dir(song_id)
+    if not analyses_root.exists():
+        return None
+    for child in analyses_root.iterdir():
+        candidate = child / "cue_video.mp4"
+        if candidate.exists():
+            return candidate
+    return None
+
+
 @router.get("/songs/{song_id}/cue-video")
 def get_cue_video(song_id: str, request: Request) -> FileResponse:
     """Serve the song's cue_video.mp4 if one was rendered during ingest."""
@@ -131,17 +143,14 @@ def get_cue_video(song_id: str, request: Request) -> FileResponse:
     rec = storage.get_song(song_id)
     if rec is None:
         raise HTTPException(status_code=404, detail="song not found")
-    analyses_root = storage.analyses_dir(song_id)
-    if analyses_root.exists():
-        for child in analyses_root.iterdir():
-            candidate = child / "cue_video.mp4"
-            if candidate.exists():
-                return FileResponse(
-                    str(candidate),
-                    media_type="video/mp4",
-                    filename=f"{rec.title or song_id}_cue_video.mp4",
-                )
-    raise HTTPException(status_code=404, detail="cue video not available")
+    candidate = _find_cue_video(storage, song_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="cue video not available")
+    return FileResponse(
+        str(candidate),
+        media_type="video/mp4",
+        filename=f"{rec.title or song_id}_cue_video.mp4",
+    )
 
 
 @router.get("/songs/{song_id}")
@@ -160,6 +169,7 @@ def get_song(song_id: str, request: Request) -> dict:
         "source_url": rec.source_url,
         "has_analysis": summary.has_analysis if summary else False,
         "analysis_ids": summary.analysis_ids if summary else [],
+        "has_cue_video": _find_cue_video(storage, song_id) is not None,
     }
 
 

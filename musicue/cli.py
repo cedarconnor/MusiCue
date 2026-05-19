@@ -149,6 +149,11 @@ def render(
             video_path = out_file.with_name("cue_video.mp4")
             try:
                 render_cue_video(cuesheet, audio_path, video_path)
+                typer.echo(
+                    f"Cue video preview: {video_path}\n"
+                    "  Open in any video player to see how each cue channel "
+                    "fires through the song."
+                )
             except Exception as exc:
                 typer.echo(f"  warning: cue_video render failed: {exc}", err=True)
         return out_file
@@ -236,7 +241,11 @@ def cue_video(
         fps=fps, width=width, height=height,
         window_sec=window_sec, workers=workers,
     )
-    typer.echo(f"Cue video written to {out_path}")
+    typer.echo(
+        f"Cue video written to {out_path}\n"
+        "  Open in any video player to see each cue channel fire through "
+        "the song."
+    )
 
 
 @app.command()

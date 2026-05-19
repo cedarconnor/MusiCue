@@ -47,6 +47,15 @@ export default function Editor() {
   const [cursorTime, setCursorTime] = useState<number>(0);
   const [exportOpen, setExportOpen] = useState<boolean>(false);
   const [cedarToyOpen, setCedarToyOpen] = useState<boolean>(false);
+  const [cueVideoHintDismissed, setCueVideoHintDismissed] = useState<boolean>(
+    () => {
+      try {
+        return localStorage.getItem("cueVideoHint:dismissed") === "1";
+      } catch {
+        return false;
+      }
+    },
+  );
   const [clickOn, setClickOn] = useState<boolean>(false);
   const [layout, setLayout] = useState<{ duration: number; pxPerSec: number }>({
     duration: 0,
@@ -113,6 +122,61 @@ export default function Editor() {
 
   return (
     <div>
+      {song?.has_cue_video && !cueVideoHintDismissed && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: "8px 14px",
+            margin: "8px 0",
+            background: "#1f2630",
+            border: "1px solid #2c3a4a",
+            borderRadius: 4,
+            color: "#cfe2f3",
+            fontSize: 13,
+          }}
+        >
+          <span aria-hidden style={{ fontSize: 16 }}>🎬</span>
+          <span style={{ flex: 1 }}>
+            A cue video preview was generated for this song — open it in any
+            video player to watch how each cue channel fires through the song.
+          </span>
+          <a
+            href={`/api/songs/${songId}/cue-video`}
+            download
+            style={{
+              color: "#9ec8f5",
+              textDecoration: "underline",
+              fontSize: 13,
+            }}
+          >
+            Download
+          </a>
+          <button
+            onClick={() => {
+              setCueVideoHintDismissed(true);
+              try {
+                localStorage.setItem("cueVideoHint:dismissed", "1");
+              } catch {
+                // ignore
+              }
+            }}
+            aria-label="Dismiss cue video hint"
+            title="Dismiss"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#88a0b8",
+              cursor: "pointer",
+              fontSize: 16,
+              padding: "0 4px",
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
       <MetadataCard song={song} analysis={analysis} />
       <LabelChipStrip selected={selected} analysis={analysis} />
       <Timeline

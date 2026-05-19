@@ -169,3 +169,35 @@ async def test_cue_video_route_returns_404_when_missing(
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.get(f"/api/songs/{rec.id}/cue-video")
         assert r.status_code == 404
+
+
+async def test_song_detail_includes_has_cue_video_flag(
+    tmp_path, make_app, synthetic_wav
+) -> None:
+    """GET /api/songs/{id} should report has_cue_video so the Editor can
+    show a 'cue video preview available' banner without a separate request."""
+    from httpx import ASGITransport, AsyncClient
+
+    from musicue.ui.storage import UIStorage
+
+    storage_root = tmp_path / "storage"
+    storage_root.mkdir()
+    app = make_app(storage_root)
+    storage: UIStorage = app.state.storage
+    rec = storage.register_source(synthetic_wav, title="t")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # No cue_video.mp4 yet -> has_cue_video should be False
+        r = await client.get(f"/api/songs/{rec.id}")
+        assert r.status_code == 200
+        assert r.json()["has_cue_video"] is False
+
+        # Drop a fake video file in any analysis subdir
+        run_dir = storage.analyses_dir(rec.id) / "abc"
+        run_dir.mkdir(parents=True)
+        (run_dir / "cue_video.mp4").write_bytes(b"FAKEMP4")
+
+        r = await client.get(f"/api/songs/{rec.id}")
+        assert r.status_code == 200
+        assert r.json()["has_cue_video"] is True
