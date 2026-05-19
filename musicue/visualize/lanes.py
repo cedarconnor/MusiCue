@@ -6,7 +6,7 @@ from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
 
 from musicue.schemas import CueTrack
-from musicue.visualize.colors import track_color
+from musicue.visualize.colors import section_palette, track_color
 from musicue.visualize.cue_video import events_in_window, spanning_events_in_window
 from musicue.visualize.envelopes import ease, sample_adsr
 
@@ -164,3 +164,48 @@ def draw_envelope_lane(
             alpha = 0.55
 
         ax.fill_between(xs, 0.0, ys, color=color, alpha=alpha, linewidth=0)
+
+
+def draw_step_lane(
+    ax: Axes,
+    track: CueTrack,
+    t_now: float,
+    window_sec: float,
+) -> None:
+    """Render a step track: segmented bar across the timeline, labeled."""
+    events = track.events or []
+    if not events:
+        return
+    x0, x1 = ax.get_xlim()
+    seg_list: list[tuple[float, float, str]] = []
+    for i, ev in enumerate(events):
+        t = float(ev.get("t", 0.0))
+        label = str(ev.get("label", ""))
+        seg_end = float(events[i + 1].get("t", t)) if i + 1 < len(events) else x1 + 1.0
+        seg_list.append((t, seg_end, label))
+
+    fallback = track_color(track.name)
+    for start, end, label in seg_list:
+        if end < x0 or start > x1:
+            continue
+        color = section_palette(label) if label else fallback
+        is_current = start <= t_now < end
+        edgecolor = (1.0, 1.0, 1.0, 0.9) if is_current else (0.0, 0.0, 0.0, 0.0)
+        ax.add_patch(
+            Rectangle(
+                (start, 0.1), end - start, 0.8,
+                facecolor=(*color, 0.7),
+                edgecolor=edgecolor,
+                linewidth=1.5 if is_current else 0.0,
+                zorder=1,
+            )
+        )
+        vis_start = max(start, x0)
+        vis_end = min(end, x1)
+        if vis_end - vis_start > 0.1:
+            ax.text(
+                (vis_start + vis_end) / 2.0, 0.5, label,
+                ha="center", va="center",
+                color="white", fontsize=9,
+                zorder=2,
+            )

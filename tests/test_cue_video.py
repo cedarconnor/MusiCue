@@ -388,3 +388,34 @@ def test_lane_renderer_envelope_skips_out_of_window() -> None:
     assert len(polys) == 0
 
     plt.close(fig)
+
+
+def test_lane_renderer_step_draws_segments_and_current_outline() -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
+    from musicue.visualize.lanes import draw_step_lane
+
+    track = _step_track()  # intro at t=0, chorus at t=2
+    fig, ax = plt.subplots()
+    ax.set_xlim(-1.0, 5.0)
+    ax.set_ylim(0.0, 1.0)
+
+    draw_step_lane(ax, track, t_now=2.5, window_sec=6.0)
+
+    rects = [p for p in ax.patches if isinstance(p, Rectangle)]
+    big = [p for p in rects if p.get_width() > 0.5]
+    assert len(big) >= 2
+
+    has_outline = any(
+        (p.get_edgecolor() and len(p.get_edgecolor()) == 4 and p.get_edgecolor()[3] > 0)
+        for p in big
+    )
+    assert has_outline
+
+    labels = {t.get_text() for t in ax.texts}
+    assert "intro" in labels and "chorus" in labels
+
+    plt.close(fig)
