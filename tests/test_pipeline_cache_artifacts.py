@@ -12,7 +12,8 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from musicue.analysis.pipeline import _write_run_artifacts
+from musicue.analysis.pipeline import _version_dict, _write_run_artifacts
+from musicue.config import MusiCueConfig
 from musicue.schemas import (
     AnalysisConfig,
     AnalysisResult,
@@ -64,3 +65,16 @@ def test_write_run_artifacts_skips_missing_stems_gracefully(tmp_path):
     _write_run_artifacts(result, audio, run_dir)
     assert (run_dir / "analysis.json").exists()
     assert not (run_dir / "peaks.drums.json").exists()
+
+
+def test_version_dict_includes_behavior_affecting_analysis_settings():
+    cfg = MusiCueConfig()
+    cfg.analysis.phrase_gap_sec = {"vocals": 1.2, "other": 0.2}
+    cfg.analysis.clap_top_k = 7
+    cfg.analysis.clap_threshold = 0.8
+
+    versions = _version_dict(cfg)
+
+    assert versions["phrase_gap_sec"] == {"vocals": 1.2, "other": 0.2}
+    assert versions["clap_top_k"] == 7
+    assert versions["clap_threshold"] == 0.8

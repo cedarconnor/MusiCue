@@ -19,6 +19,6 @@ def get_readiness(request: Request) -> ReadinessReport:
 
 @router.post("/api/health/readiness/refresh", response_model=ReadinessReport)
 def refresh_readiness(request: Request) -> ReadinessReport:
-    report = collect_report()
+    report = collect_report(deep=True)
     request.app.state.readiness_report = report
     return report

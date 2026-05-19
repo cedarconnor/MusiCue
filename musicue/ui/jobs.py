@@ -40,9 +40,9 @@ class JobManager:
         # Optional callback invoked when request_cancel decides a job is
         # cancellable. Lets the route layer plug in AnalyzePool.cancel
         # without JobManager importing it directly.
-        self._cancel_hook: "Callable[[str], None] | None" = None
+        self._cancel_hook: "Callable[[str], object] | None" = None
 
-    def register_cancel_hook(self, hook: "Callable[[str], None]") -> None:
+    def register_cancel_hook(self, hook: "Callable[[str], object]") -> None:
         self._cancel_hook = hook
 
     def submit(self, kind: str, payload: dict) -> Job:

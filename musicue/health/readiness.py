@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Literal
 
 from musicue.health import probes
 from musicue.health.models import ComponentState, ComponentStatus, ReadinessReport
 
 
-def _rollup(items: list[ComponentStatus]) -> str:
+def _rollup(items: list[ComponentStatus]) -> Literal["green", "amber", "red"]:
     if any(
         c.required and c.state in (ComponentState.MISSING, ComponentState.ERROR)
         for c in items
@@ -24,14 +25,14 @@ def _rollup(items: list[ComponentStatus]) -> str:
     return "green"
 
 
-def collect_report() -> ReadinessReport:
+def collect_report(*, deep: bool = True) -> ReadinessReport:
     components = [
         probes.probe_python_venv(),
         probes.probe_torch(),
         probes.probe_cuda(),
         probes.probe_ffmpeg(),
         probes.probe_demucs(),
-        probes.probe_basic_pitch(),
+        probes.probe_basic_pitch(deep=deep),
         probes.probe_allin1(),
         probes.probe_clap(),
     ]
