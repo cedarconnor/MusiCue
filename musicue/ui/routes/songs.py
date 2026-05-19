@@ -31,8 +31,15 @@ async def _default_analyze(
     when one is available; falls back to the default executor (thread) when
     no pool/job_id was provided — this keeps the test-mode analyze_func
     overrides simple."""
+    import logging
+
     from musicue.analysis.pipeline import compute_run_dir, run_analysis
+    from musicue.compile.compiler import compile_analysis
     from musicue.config import MusiCueConfig
+    from musicue.schemas import AnalysisResult
+    from musicue.visualize.cue_video import render_cue_video
+
+    log = logging.getLogger(__name__)
 
     cfg = MusiCueConfig()
     cfg.runs_dir = run_dir.parent
@@ -50,8 +57,33 @@ async def _default_analyze(
         await asyncio.get_running_loop().run_in_executor(
             None, run_analysis, audio_path, cfg
         )
-    await publish({"type": "progress", "fraction": 0.95, "stage": "writing"})
     actual_run_dir = compute_run_dir(audio_path, cfg)
+
+    # Cue-video tail — compile + render. Wrapped so any failure here
+    # does not abort the analyze job; the song is still browsable.
+    await publish({"type": "progress", "fraction": 0.85, "stage": "rendering cues"})
+    try:
+        analysis_path = actual_run_dir / "analysis.json"
+        if analysis_path.exists():
+            analysis = AnalysisResult.model_validate_json(analysis_path.read_text())
+            cuesheet = compile_analysis(analysis, grammar="concert_visuals")
+            (actual_run_dir / "cuesheet.json").write_text(
+                cuesheet.model_dump_json(indent=2)
+            )
+            await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: render_cue_video(
+                    cuesheet, audio_path,
+                    actual_run_dir / "cue_video.mp4",
+                    workers=1,
+                ),
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "cue_video render failed for %s: %s", actual_run_dir.name, exc
+        )
+
+    await publish({"type": "progress", "fraction": 0.95, "stage": "writing"})
     return actual_run_dir.name
 
 
