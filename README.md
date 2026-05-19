@@ -98,7 +98,7 @@ Windows without the installer, the path is:
 
 ```powershell
 # Create a venv however you prefer (uv, conda, python -m venv).
-pip install -e ".[dev,ui,midi,osc]" basic-pitch
+pip install -e ".[dev,ui,midi,osc]" basic-pitch "setuptools<81"
 pip install -e ".[clap]"      # optional, ~4 GB of weights on first use
 pip install allin1             # optional, Linux/macOS install is easier
 ```
@@ -130,8 +130,9 @@ musicue export cuesheet.json --target after_effects --out cuesheet.jsx
 | `musicue export <cuesheet.json> --target <name>` | Layer 3 — emit target format |
 | `musicue export-bundle <song>` | Compose AnalysisResult + CueSheet into a single `<song>.musicue.json` for downstream consumers (e.g. [CedarToy](https://github.com/cedarconnor/cedartoy)). Pass `--folder <dir>` to produce a portable project folder instead. |
 | `musicue send-to-cedartoy <song> --output <dir>` | Alias for `export-bundle --folder` with stems included by default. Produces a self-contained folder you can hand to another machine. |
-| `musicue render <song>` | All three layers in one shot |
+| `musicue render <song>` | All three layers in one shot (also writes `cue_video.mp4`; pass `--no-cue-video` to skip) |
 | `musicue render <dir> --batch --workers 4` | Parallel batch over a directory |
+| `musicue cue-video <cuesheet.json>` | Render a per-channel preview MP4 of a compiled cuesheet (1280×720 H.264 at 29.97 fps, audio embedded). Auto-discovers a sibling `source.*`. |
 | `musicue inspect <analysis.json>` | Print human-readable summary |
 | `musicue plot <analysis.json> --out plot.png` | Render matplotlib timeline |
 | `musicue listen <cuesheet.json> --audio <song.wav>` | Render QC click-track WAV |
@@ -482,7 +483,29 @@ Picking any of the four editorial formats reveals a **Markers** multi-select whe
 
 Color is assigned by category — sections show as **Blue**, transitions as **Red**, impulses as **Green**, envelopes as **Yellow** — matching the named colors that Resolve, Premiere, and FCPX/Resolve recognize natively. EDL writes the color as a `* COLOR:` comment line; FCPXML prefixes the color into the marker name (e.g. `[Blue] verse`); Premiere ignores color in CSV (the format doesn't carry it); Resolve respects the named-color column directly.
 
-> Audio export (reference mix, individual stems) and video export (timeline render) are planned for **v0.2d**. The CLI commands (`musicue export`, `musicue render`, `scripts/make_qc_video.py`) cover those today.
+> Audio export (reference mix, individual stems) is planned for **v0.2d**. Video export is available today via `musicue cue-video` (per-channel cue preview, auto-generated during library ingest) and `scripts/make_qc_video.py` (waveform + onset QC).
+
+### Cue video preview
+
+When a song finishes analyzing, MusiCue automatically renders a
+`cue_video.mp4` next to its analysis. The video stacks one horizontal
+lane per cue track from the default `concert_visuals` grammar, with a
+left-edge "fire panel" that flashes whenever that lane fires — so you
+can see at a glance what every cue channel will look like as the song
+plays.
+
+The video is 1280×720 at 29.97 fps (NTSC), H.264 in an MP4 container,
+with the source audio embedded. From the CLI:
+
+```powershell
+musicue cue-video runs/<sha>/cuesheet.json --out preview.mp4
+```
+
+The CLI auto-discovers a sibling `source.*` when `--audio` is omitted.
+
+If the render fails during ingest (for example, ffmpeg is missing), the
+analyze job still completes — the video is simply absent, and you can
+re-run it from the CLI later.
 
 ## Operational scripts
 
