@@ -289,6 +289,34 @@ def test_export_content_disposition_has_both_filename_forms(tmp_path):
     assert "filename*=utf-8''demo.jsx" in cd
 
 
+def test_export_unicode_filename_does_not_crash(tmp_path):
+    """Regression: Content-Disposition's legacy filename= parameter is
+    latin-1 only. A song title like "Hair ☆ Dye" (U+2606 outside latin-1)
+    used to crash starlette's header encoder with UnicodeEncodeError before
+    the body could be sent. We sanitize the legacy form to ASCII while
+    keeping the real Unicode name in filename*=utf-8''.
+    """
+    _plant_analysis(tmp_path)
+    client = TestClient(create_app(storage_root=tmp_path))
+    r = client.post(
+        f"/api/songs/{SONG_ID}/analyses/{ANALYSIS_ID}/export",
+        json={
+            "format": "csv",
+            "grammar": "concert_visuals",
+            "filename": "Hair ☆ Dye",
+        },
+    )
+    assert r.status_code == 200
+    cd = r.headers.get("content-disposition", "")
+
+    # Legacy form: non-ASCII replaced with underscores so the parameter stays
+    # latin-1 encodable.
+    assert 'filename="Hair _ Dye.csv"' in cd
+    # Extended form: real Unicode name, percent-encoded.
+    # %E2%98%86 is the UTF-8 encoding of ☆ (U+2606).
+    assert "filename*=utf-8''Hair%20%E2%98%86%20Dye.csv" in cd
+
+
 def test_export_missing_analysis(tmp_path):
     # Don't plant anything.
     client = TestClient(create_app(storage_root=tmp_path))

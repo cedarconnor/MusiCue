@@ -151,13 +151,22 @@ def export_cuesheet(
     # set Content-Disposition explicitly with BOTH the legacy and extended
     # forms so the browser (or our fetch-blob handler) always sees a usable
     # filename and doesn't fall back to ".bin".
+    #
+    # The legacy filename= parameter MUST be latin-1 encodable per RFC 6266 /
+    # HTTP header rules. Song titles like "Hair ☆ Dye" contain code points
+    # outside latin-1, so we strip those to ASCII for the legacy form and
+    # rely on filename*= (UTF-8, percent-encoded) for the real Unicode name.
     quoted = quote(download_name)
+    legacy_name = download_name.encode("ascii", errors="replace").decode("ascii")
+    # encode/replace turns non-ASCII bytes into '?', which Content-Disposition
+    # would mis-quote; swap to underscore so the fallback filename stays valid.
+    legacy_name = legacy_name.replace("?", "_").replace('"', "_")
     return FileResponse(
         path=tmp.name,
         media_type="application/octet-stream",
         headers={
             "Content-Disposition": (
-                f'attachment; filename="{download_name}"; '
+                f'attachment; filename="{legacy_name}"; '
                 f"filename*=utf-8''{quoted}"
             )
         },
