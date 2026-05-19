@@ -59,3 +59,45 @@ def test_ease_unknown_shape_falls_back_to_linear() -> None:
     from musicue.visualize.envelopes import ease
 
     assert ease("nonsense", 0.5) == 0.5
+
+
+def test_track_color_is_deterministic() -> None:
+    from musicue.visualize.colors import track_color
+
+    a = track_color("kick")
+    b = track_color("kick")
+    assert a == b
+    assert len(a) == 3
+    assert all(0.0 <= c <= 1.0 for c in a)
+
+
+def test_track_color_differs_between_tracks() -> None:
+    from musicue.visualize.colors import track_color
+
+    assert track_color("kick") != track_color("snare")
+
+
+def test_section_palette_known_labels() -> None:
+    from musicue.visualize.colors import section_palette
+
+    assert section_palette("intro")[2] > section_palette("intro")[0]  # blueish
+    assert section_palette("verse")[1] > section_palette("verse")[0]  # greenish
+    assert section_palette("CHORUS")[0] > 0.7  # yellow has high red
+    assert section_palette("verse_2") == section_palette("verse")  # fuzzy match
+
+
+def test_section_palette_unknown_label_is_grey() -> None:
+    from musicue.visualize.colors import section_palette
+
+    r, g, b = section_palette("interlude")
+    assert abs(r - g) < 0.1 and abs(g - b) < 0.1  # roughly grey
+
+
+def test_type_tint_known_types() -> None:
+    from musicue.visualize.colors import type_tint
+
+    assert type_tint("impulse") != type_tint("envelope")
+    assert type_tint("ramp") != type_tint("continuous")
+    for t in ("impulse", "envelope", "step", "ramp", "continuous"):
+        r, g, b = type_tint(t)
+        assert (r + g + b) / 3 < 0.4
