@@ -5,6 +5,8 @@ from typing import Optional
 
 import typer
 
+from musicue.analysis.pipeline import run_analysis
+from musicue.compile.compiler import compile_analysis
 from musicue.visualize.cue_video import render_cue_video
 
 app = typer.Typer(name="musicue", help="Convert songs to typed event timelines for DCC tools.")
@@ -112,13 +114,15 @@ def render(
     ),
     fps: float = typer.Option(24.0, "--fps", help="Frame rate for frame/timecode stamping."),
     drop_frame: bool = typer.Option(False, "--drop-frame", help="Use SMPTE drop-frame timecode (29.97/59.94 only)."),
+    no_cue_video: bool = typer.Option(
+        False, "--no-cue-video",
+        help="Skip the cue_video.mp4 preview render after export.",
+    ),
 ) -> None:
     """Convenience: analyze -> compile -> export in one shot. Use --batch to process a directory."""
     import importlib
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    from musicue.analysis.pipeline import run_analysis
-    from musicue.compile.compiler import compile_analysis
     from musicue.config import MusiCueConfig
 
     if target not in _EXPORTERS:
@@ -140,6 +144,13 @@ def render(
         else:
             out_file = audio_path.parent / (audio_path.stem + suffix)
         importlib.import_module(module_name).export(cuesheet, out_file)
+
+        if not no_cue_video:
+            video_path = out_file.with_name("cue_video.mp4")
+            try:
+                render_cue_video(cuesheet, audio_path, video_path)
+            except Exception as exc:
+                typer.echo(f"  warning: cue_video render failed: {exc}", err=True)
         return out_file
 
     if batch:

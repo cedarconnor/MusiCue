@@ -683,3 +683,125 @@ def test_cli_errors_when_audio_not_found(tmp_path, full_cuesheet) -> None:
     result = runner.invoke(app, ["cue-video", str(cs_path)])
     # Missing audio + no sibling source.* should exit non-zero.
     assert result.exit_code != 0
+
+
+def test_render_command_invokes_cue_video_by_default(
+    tmp_path, monkeypatch, short_wav
+) -> None:
+    """musicue render should call render_cue_video unless --no-cue-video."""
+    from pathlib import Path
+
+    from typer.testing import CliRunner
+
+    from musicue.cli import app
+    from musicue.schemas import (
+        AnalysisConfig,
+        AnalysisResult,
+        CueSheet,
+        CueTrack,
+        SourceInfo,
+    )
+
+    src = SourceInfo(
+        path=str(short_wav), sha256="deadbeef",
+        duration_sec=2.0, sample_rate=44100,
+    )
+    stub_analysis = AnalysisResult(
+        source=src, analysis_config=AnalysisConfig(), stems={},
+    )
+
+    def fake_run_analysis(*a, **kw):
+        return stub_analysis
+
+    def fake_compile(*a, **kw):
+        return CueSheet(
+            source_sha256="deadbeef", grammar="concert_visuals",
+            duration_sec=2.0,
+            tracks=[CueTrack(
+                name="x", type="impulse", timescale="micro",
+                events=[{
+                    "t": 1.0, "strength": 1.0,
+                    "envelope": {"a": 0.01, "d": 0.1, "s": 0.0, "r": 0.0},
+                }],
+            )],
+        )
+
+    called = {"n": 0, "out_path": None}
+
+    def fake_render(cuesheet, audio_path, out_path, **kw):
+        called["n"] += 1
+        called["out_path"] = Path(out_path)
+        Path(out_path).write_bytes(b"FAKE")
+
+    import musicue.exporters.csv as csv_exporter
+
+    def fake_export(cs, out):
+        Path(out).write_text("time,value\n")
+
+    monkeypatch.setattr(csv_exporter, "export", fake_export)
+    monkeypatch.setattr("musicue.cli.run_analysis", fake_run_analysis, raising=False)
+    monkeypatch.setattr("musicue.cli.compile_analysis", fake_compile, raising=False)
+    monkeypatch.setattr("musicue.cli.render_cue_video", fake_render)
+
+    out_path = tmp_path / "out.csv"
+    runner = CliRunner()
+    result = runner.invoke(app, [
+        "render", str(short_wav),
+        "--target", "csv",
+        "--out", str(out_path),
+    ])
+    assert result.exit_code == 0, result.stdout
+    assert called["n"] == 1
+    assert called["out_path"] == out_path.with_name("cue_video.mp4")
+
+
+def test_render_command_skips_cue_video_when_flag(
+    tmp_path, monkeypatch, short_wav
+) -> None:
+    from pathlib import Path
+
+    from typer.testing import CliRunner
+
+    from musicue.cli import app
+    from musicue.schemas import (
+        AnalysisConfig,
+        AnalysisResult,
+        CueSheet,
+        SourceInfo,
+    )
+
+    src = SourceInfo(
+        path=str(short_wav), sha256="x",
+        duration_sec=2.0, sample_rate=44100,
+    )
+    stub = AnalysisResult(source=src, analysis_config=AnalysisConfig(), stems={})
+
+    def fake_run_analysis(*a, **kw):
+        return stub
+
+    def fake_compile(*a, **kw):
+        return CueSheet(
+            source_sha256="x", grammar="g",
+            duration_sec=2.0, tracks=[],
+        )
+
+    def fake_render(*a, **kw):
+        raise AssertionError("render_cue_video should not be called")
+
+    import musicue.exporters.csv as csv_exporter
+
+    monkeypatch.setattr(
+        csv_exporter, "export",
+        lambda cs, out: Path(out).write_text(""),
+    )
+    monkeypatch.setattr("musicue.cli.run_analysis", fake_run_analysis, raising=False)
+    monkeypatch.setattr("musicue.cli.compile_analysis", fake_compile, raising=False)
+    monkeypatch.setattr("musicue.cli.render_cue_video", fake_render)
+
+    runner = CliRunner()
+    result = runner.invoke(app, [
+        "render", str(short_wav),
+        "--target", "csv", "--out", str(tmp_path / "o.csv"),
+        "--no-cue-video",
+    ])
+    assert result.exit_code == 0, result.stdout
