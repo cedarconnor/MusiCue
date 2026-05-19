@@ -1,4 +1,4 @@
-import pytest
+import types
 
 from musicue.health import probes
 from musicue.health.models import ComponentState
@@ -165,8 +165,12 @@ def test_probe_ffmpeg_missing(monkeypatch):
 def test_probe_basic_pitch_ready(monkeypatch):
     import sys as _sys
 
-    fake = type("M", (), {})()
+    fake = types.ModuleType("basic_pitch")
+    fake.__path__ = []  # type: ignore[attr-defined]
+    fake_inference = types.ModuleType("basic_pitch.inference")
+    fake_inference.predict = lambda *args, **kwargs: None  # type: ignore[attr-defined]
     monkeypatch.setitem(_sys.modules, "basic_pitch", fake)
+    monkeypatch.setitem(_sys.modules, "basic_pitch.inference", fake_inference)
     monkeypatch.setattr(
         probes, "_pkg_version_or_none", lambda name: "0.4.0"
     )
@@ -183,6 +187,21 @@ def test_probe_basic_pitch_missing(monkeypatch):
     status = probes.probe_basic_pitch()
     assert status.state == ComponentState.MISSING
     assert "basic-pitch" in (status.remediation or "")
+
+
+def test_probe_basic_pitch_errors_when_inference_import_fails(monkeypatch):
+    import sys as _sys
+
+    fake = types.ModuleType("basic_pitch")
+    fake.__path__ = []  # type: ignore[attr-defined]
+    monkeypatch.setitem(_sys.modules, "basic_pitch", fake)
+    monkeypatch.delitem(_sys.modules, "basic_pitch.inference", raising=False)
+
+    status = probes.probe_basic_pitch()
+
+    assert status.state == ComponentState.ERROR
+    assert status.required is True
+    assert "basic_pitch.inference" in (status.detail or "")
 
 
 def test_probe_demucs_ready_when_all_checkpoints_present(monkeypatch, tmp_path):
@@ -273,6 +292,30 @@ def test_probe_allin1_missing_when_no_checkpoint(monkeypatch, tmp_path):
     monkeypatch.setattr(probes, "_allin1_cache_dir", lambda: tmp_path)
     status = probes.probe_allin1()
     assert status.state == ComponentState.MISSING
+
+
+def test_probe_allin1_ready_with_hf_hub_layout(monkeypatch, tmp_path):
+    """Regression: allin1 caches weights in HF hub's snapshots/<rev>/*.pth
+    layout, not at the top of ~/.cache/all-in-one. The probe must scan
+    recursively to find them."""
+    import sys as _sys
+
+    fake = type("M", (), {})()
+    monkeypatch.setitem(_sys.modules, "allin1", fake)
+    monkeypatch.setattr(probes, "_pkg_version_or_none", lambda name: "1.1.0")
+    snap = tmp_path / "snapshots" / "deadbeef"
+    snap.mkdir(parents=True)
+    (snap / "harmonix-fold0.pth").write_bytes(b"weights")
+    monkeypatch.setattr(probes, "_allin1_cache_dir", lambda: tmp_path)
+    status = probes.probe_allin1()
+    assert status.state == ComponentState.READY
+
+
+def test_probe_allin1_cache_dir_points_at_hf_hub():
+    """The cache path the probe checks must match where allin1 actually
+    downloads weights (HuggingFace hub layout for taejunkim/allinone)."""
+    p = probes._allin1_cache_dir()
+    assert p.parts[-3:] == ("huggingface", "hub", "models--taejunkim--allinone")
 
 
 def test_probe_clap_ready(monkeypatch, tmp_path):

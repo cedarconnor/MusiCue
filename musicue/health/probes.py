@@ -4,7 +4,7 @@ import shutil
 import sys
 from functools import wraps
 from pathlib import Path
-from typing import Callable
+from typing import Callable, ParamSpec
 
 from musicue.health.models import ComponentState, ComponentStatus
 
@@ -19,13 +19,15 @@ _REQUIRED: dict[str, bool] = {
     "clap": False,
 }
 
+P = ParamSpec("P")
 
-def _wrap(name: str) -> Callable[[Callable[[], ComponentStatus]], Callable[[], ComponentStatus]]:
-    def decorator(fn: Callable[[], ComponentStatus]) -> Callable[[], ComponentStatus]:
+
+def _wrap(name: str) -> Callable[[Callable[P, ComponentStatus]], Callable[P, ComponentStatus]]:
+    def decorator(fn: Callable[P, ComponentStatus]) -> Callable[P, ComponentStatus]:
         @wraps(fn)
-        def inner() -> ComponentStatus:
+        def inner(*args: P.args, **kwargs: P.kwargs) -> ComponentStatus:
             try:
-                return fn()
+                return fn(*args, **kwargs)
             except Exception as e:
                 return ComponentStatus(
                     name=name,
@@ -173,26 +175,65 @@ def _pkg_version_or_none(pkg_name: str) -> str | None:
         return None
 
 
+def _module_available(module_name: str) -> bool:
+    import importlib.util
+
+    if module_name in sys.modules:
+        return sys.modules[module_name] is not None
+    return importlib.util.find_spec(module_name) is not None
+
+
 @_wrap("basic_pitch")
-def probe_basic_pitch() -> ComponentStatus:
+def probe_basic_pitch(*, deep: bool = True) -> ComponentStatus:
     import importlib
 
-    try:
-        importlib.import_module("basic_pitch")
-    except ImportError as e:
+    if not _module_available("basic_pitch"):
         return ComponentStatus(
             name="basic_pitch",
             state=ComponentState.MISSING,
             required=True,
-            detail=f"basic_pitch not importable: {e}",
-            remediation="uv pip install basic-pitch",
+            detail="basic_pitch not importable",
+            remediation="uv pip install basic-pitch setuptools",
+        )
+
+    version = _pkg_version_or_none("basic-pitch")
+    if not deep:
+        return ComponentStatus(
+            name="basic_pitch",
+            state=ComponentState.DEGRADED,
+            required=True,
+            version=version,
+            detail="basic_pitch is installed; inference smoke check has not run yet.",
+            remediation="Refresh readiness to run the Basic Pitch inference smoke check.",
+        )
+
+    try:
+        inference = importlib.import_module("basic_pitch.inference")
+    except Exception as e:
+        return ComponentStatus(
+            name="basic_pitch",
+            state=ComponentState.ERROR,
+            required=True,
+            version=version,
+            detail=f"basic_pitch.inference not usable: {type(e).__name__}: {e}",
+            remediation="Run install.bat or `uv pip install basic-pitch setuptools`.",
+        )
+
+    if not hasattr(inference, "predict"):
+        return ComponentStatus(
+            name="basic_pitch",
+            state=ComponentState.ERROR,
+            required=True,
+            version=version,
+            detail="basic_pitch.inference imported but has no predict function.",
+            remediation="Reinstall basic-pitch.",
         )
 
     return ComponentStatus(
         name="basic_pitch",
         state=ComponentState.READY,
         required=True,
-        version=_pkg_version_or_none("basic-pitch"),
+        version=version,
     )
 
 
@@ -257,7 +298,17 @@ def probe_demucs() -> ComponentStatus:
 
 
 def _allin1_cache_dir() -> Path:
-    return Path.home() / ".cache" / "all-in-one"
+    """Location where allin1 actually downloads its harmonix weights.
+
+    allin1 pulls its checkpoints from HuggingFace at the
+    'taejunkim/allinone' repo, so the cache lives under the standard HF
+    hub layout — not at the legacy ~/.cache/all-in-one path the earlier
+    probe assumed.
+    """
+    return (
+        Path.home() / ".cache" / "huggingface" / "hub"
+        / "models--taejunkim--allinone"
+    )
 
 
 def _clap_cache_dirs() -> list[Path]:
@@ -295,7 +346,12 @@ def probe_allin1() -> ComponentStatus:
         )
 
     cache = _allin1_cache_dir()
-    has_ckpt = cache.exists() and any(cache.iterdir())
+    # HF hub stores weights under snapshots/<rev>/*.pth. Recursive glob
+    # finds them regardless of revision. .pt is also accepted for
+    # forward-compat with future allin1 packaging.
+    has_ckpt = cache.exists() and (
+        any(cache.rglob("*.pth")) or any(cache.rglob("*.pt"))
+    )
     if not has_ckpt:
         return ComponentStatus(
             name="allin1",
@@ -317,16 +373,12 @@ def probe_allin1() -> ComponentStatus:
 
 @_wrap("clap")
 def probe_clap() -> ComponentStatus:
-    import importlib
-
-    try:
-        importlib.import_module("laion_clap")
-    except ImportError as e:
+    if not _module_available("laion_clap"):
         return ComponentStatus(
             name="clap",
             state=ComponentState.MISSING,
             required=False,
-            detail=f"laion_clap not importable: {e}",
+            detail="laion_clap not importable",
             remediation='uv pip install -e ".[clap]"',
         )
 
