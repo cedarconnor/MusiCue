@@ -91,8 +91,13 @@ if ($LASTEXITCODE -ne 0) {
     Soft-Warn "cython" "Cython install failed; madmom build will fail too."
 }
 
+# --no-cache forces uv to rebuild madmom against the CURRENT venv numpy
+# instead of reusing a stale cached wheel from a previous install. Without
+# this flag, a fresh rebuild can end up with a madmom whose Cython modules
+# were compiled against numpy 1.x while the venv has numpy 2.x, producing
+# "numpy.dtype size changed" ABI errors at runtime.
 Write-Step "Installing madmom from git (needs VS Build Tools on Windows)"
-& uv pip install --no-build-isolation "git+https://github.com/CPJKU/madmom.git"
+& uv pip install --no-build-isolation --no-cache "git+https://github.com/CPJKU/madmom.git"
 if ($LASTEXITCODE -ne 0) {
     Soft-Warn "madmom" "madmom build failed. Install 'Visual Studio Build Tools' (Desktop dev with C++) from visualstudio.microsoft.com and re-run install.bat. Without madmom, All-In-One can't load and beats fall back to librosa (no section detection)."
 }
@@ -103,6 +108,16 @@ if ($LASTEXITCODE -ne 0) {
     Soft-Warn "allin1" "All-In-One install failed; beat detection will use the librosa fallback (no sections)."
 }
 
+# natten is imported by allin1/models/dinat.py but is NOT declared as an
+# allin1 dependency, so it doesn't install transitively. Install it
+# explicitly; the legacy-compat patch below makes the natten >=0.17 API
+# expose the procedural functions allin1 expects.
+Write-Step "Installing NATTEN (allin1 runtime dep)"
+& uv pip install natten
+if ($LASTEXITCODE -ne 0) {
+    Soft-Warn "natten" "NATTEN install failed; allin1 will not be able to load its DINAT model. Try 'uv pip install natten' manually after the install."
+}
+
 # allin1's NATTEN attention modules import procedural functions
 # (natten1dqkrpb, natten1dav, natten2dqkrpb, natten2dav) that were
 # removed in natten >= 0.17. Patch the installed natten with a pure-
@@ -111,6 +126,28 @@ Write-Step "Patching NATTEN with legacy-compat shim"
 & uv run python (Join-Path $PSScriptRoot "patch_natten.py")
 if ($LASTEXITCODE -ne 0) {
     Soft-Warn "natten" "NATTEN patch failed; allin1 may fail to import. See scripts/patch_natten.py."
+}
+
+# -----------------------------------------------------------------------------
+# 6.5. Restore PyTorch CUDA wheels
+# -----------------------------------------------------------------------------
+# Steps 4-6 install packages whose transitive deps include torch/torchaudio.
+# uv re-resolves the dep graph and is happy to "upgrade" our pinned cu121
+# wheels to the latest CPU-only wheels from PyPI (e.g. torch 2.5.1+cu121 →
+# torch 2.12.0+cpu). That silently breaks CUDA AND mismatches torchvision's
+# C++ ops (so laion_clap / anything touching torchvision fails too).
+#
+# Reinstall the cu121 trio with --no-deps so we overwrite whatever PyPI
+# wheels uv pulled in. uv's cache holds the cu121 wheels from step 3, so
+# this is a fast metadata-only operation on subsequent runs.
+Write-Step "Restoring PyTorch CUDA 12.1 wheels (overwrites any CPU upgrades)"
+& uv pip install --reinstall --no-deps `
+    "torch==2.5.1+cu121" `
+    "torchaudio==2.5.1+cu121" `
+    "torchvision==0.20.1+cu121" `
+    --index-url https://download.pytorch.org/whl/cu121
+if ($LASTEXITCODE -ne 0) {
+    Soft-Warn "torch-cuda" "Failed to restore CUDA torch wheels; the pipeline will run on CPU. Re-run install.bat to retry."
 }
 
 # -----------------------------------------------------------------------------

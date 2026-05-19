@@ -15,13 +15,17 @@ dependencies = [
     "demucs>=4.0",
     "librosa>=0.10",
     "pyloudnorm>=0.1.0",
-    "numpy>=1.26",
+    # Pin <2 because basic-pitch (TF 2.15) and madmom-from-git have native
+    # extensions built against numpy 1.x ABI. Upgrading would require a
+    # newer tensorflow/basic-pitch that we'd have to validate end-to-end.
+    "numpy>=1.26,<2",
     "scipy>=1.11",
     "pydantic>=2.0",
     "typer>=0.12",
     "pyyaml>=6.0",
     "soundfile>=0.12",
     "soxr>=0.3",
+    "setuptools>=68,<81",
 ]
 
 [project.scripts]
@@ -29,7 +33,7 @@ musicue = "musicue.cli:app"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4", "pyright>=1.1", "matplotlib>=3.8", "mido>=1.3", "python-osc>=1.8"]
-models = ["allin1", "basic-pitch"]
+models = ["allin1", "basic-pitch", "setuptools>=68,<81"]
 clap = ["laion-clap"]
 midi = ["mido>=1.3"]
 osc = ["python-osc>=1.8"]

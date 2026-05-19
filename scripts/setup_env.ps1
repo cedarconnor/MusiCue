@@ -17,7 +17,7 @@ Write-Host "Installing PyTorch + torchaudio (CUDA 12.4 wheel)..." -ForegroundCol
 uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
 
 Write-Host "Installing MusiCue + dev deps..." -ForegroundColor Cyan
-uv pip install -e ".[dev]"
+uv pip install -e ".[dev,ui,midi,osc]" basic-pitch "setuptools<81"
 
 Write-Host "Verifying CUDA..." -ForegroundColor Cyan
 python -c "import torch; print('CUDA:', torch.cuda.is_available()); print('Device:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU only')"
