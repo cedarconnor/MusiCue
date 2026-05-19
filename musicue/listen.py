@@ -47,6 +47,38 @@ _SOURCE_GAIN = 0.15
 _CLICK_GAIN = 1.0
 
 
+STEMS = ("drums", "bass", "vocals", "other")
+
+# Track-name to stem routing for per-stem click marks.
+# Prefix match (case-insensitive) on the track name.
+_DRUM_PREFIXES = (
+    "kick", "snare", "hihat", "hat", "cymbal", "tom",
+    "downbeat", "phrase_pulse", "fill",
+)
+_VOCAL_PREFIXES = ("vocal", "vox")
+_BASS_PREFIXES = ("bass", "sub_bass", "sub-bass")
+
+
+def route_track_to_stem(track_name: str) -> str:
+    """Map a cue track name to one of the four stems.
+
+    Routing is by prefix-match heuristic so concert_visuals tracks land
+    on the obvious stems. Anything that doesn't match a known prefix
+    falls back to "other" — the catch-all stem.
+    """
+    name = (track_name or "").lower()
+    for p in _DRUM_PREFIXES:
+        if name.startswith(p):
+            return "drums"
+    for p in _VOCAL_PREFIXES:
+        if name.startswith(p):
+            return "vocals"
+    for p in _BASS_PREFIXES:
+        if name.startswith(p):
+            return "bass"
+    return "other"
+
+
 def _click(strength: float, freq: int, sr: int, decay_ms: float = 30.0) -> np.ndarray:
     """High-pitched MIDI-metronome beep: pure sine with hard onset and
     exponential decay. No noise component (sounded like a cymbal crash);
@@ -116,3 +148,52 @@ def render_click_track(
     mix = np.clip(mix, -1.0, 1.0)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     sf.write(str(out_path), mix, sr)
+
+
+def render_stem_click_marks(
+    cuesheet: CueSheet,
+    out_dir: Path,
+    sr: int = SR,
+) -> None:
+    """Write four per-stem clicks-only WAVs to `out_dir`.
+
+    Each file is `click_marks.<stem>.wav` and contains only the clicks
+    for cue tracks that route to that stem (per route_track_to_stem),
+    with no source audio mixed in. Files for stems with no matching
+    tracks are still written as silence so the UI can always fetch a
+    valid WAV.
+
+    Designed to be layered with the corresponding stem WAV in the UI:
+    when a stem is soloed with click on, the UI plays
+    <stem>.wav + click_marks.<stem>.wav simultaneously.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    n_samples = int(np.ceil(cuesheet.duration_sec * sr))
+
+    buffers = {stem: np.zeros((n_samples, 2), dtype=np.float32) for stem in STEMS}
+
+    for track in cuesheet.tracks:
+        if track.type not in ("impulse", "envelope"):
+            continue
+        stem = route_track_to_stem(track.name)
+        buf = buffers[stem]
+        pan = _PANS.get(track.name, _DEFAULT_PAN)
+        freq = _FREQS.get(track.name, _DEFAULT_FREQ)
+        for event in track.events:
+            t = float(
+                event.get("t")
+                if event.get("t") is not None
+                else event.get("t_start", 0.0)
+            )
+            strength = float(event.get("strength", 0.5))
+            click_mono = _click(strength, freq, sr)
+            click_stereo = _pan_stereo(click_mono, pan)
+            start = int(t * sr)
+            end = min(n_samples, start + len(click_stereo))
+            length = end - start
+            buf[start:end] += click_stereo[:length]
+
+    for stem, buf in buffers.items():
+        np.clip(buf, -1.0, 1.0, out=buf)
+        sf.write(str(out_dir / f"click_marks.{stem}.wav"), buf, sr)
