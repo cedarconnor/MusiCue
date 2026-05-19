@@ -10,20 +10,15 @@ import json
 from pathlib import Path
 
 import numpy as np
-import soundfile as sf
+
+from musicue.analysis import audio_io
 
 PEAKS_VERSION = 2
 
 
 def compute_peaks(audio_path: Path, samples_per_pixel: int = 1024) -> dict:
-    """Read audio (any libsndfile-supported format), downmix to mono, return peaks dict."""
-    try:
-        data, sr = sf.read(str(audio_path), dtype="float32", always_2d=False)
-    except sf.LibsndfileError:
-        import librosa
-
-        y, sr = librosa.load(str(audio_path), sr=None, mono=False)
-        data = (y.T if y.ndim > 1 else y).astype(np.float32)
+    """Downmix to mono and return a peaks dict for waveform rendering."""
+    data, sr = audio_io.load_audio(audio_path)
 
     if data.ndim > 1:
         data = data.mean(axis=1).astype(np.float32)

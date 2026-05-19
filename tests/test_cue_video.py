@@ -647,12 +647,13 @@ def test_probe_audio_duration_falls_back_to_ffprobe_when_soundfile_fails(
     if not _have_ffmpeg():
         pytest.skip("ffprobe not on PATH")
 
+    from musicue.analysis import audio_io
     from musicue.visualize import cue_video as cv
 
     def _explode(*a, **kw):
-        raise RuntimeError("simulated libsndfile failure")
+        raise audio_io.sf.LibsndfileError(0, prefix="simulated")
 
-    monkeypatch.setattr(cv.sf, "info", _explode)
+    monkeypatch.setattr(audio_io.sf, "info", _explode)
 
     duration = cv._probe_audio_duration(short_wav)
     assert 1.9 <= duration <= 2.1

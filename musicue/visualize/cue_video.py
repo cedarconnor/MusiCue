@@ -19,7 +19,6 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-import soundfile as sf  # noqa: E402
 from matplotlib.patches import Rectangle  # noqa: E402
 
 from musicue.schemas import CueSheet  # noqa: E402
@@ -230,37 +229,8 @@ def _worker_render(args: tuple[int, str]) -> int:
 
 
 def _probe_audio_duration(audio_path: Path) -> float:
-    """Probe audio duration in seconds.
-
-    soundfile (libsndfile) handles WAV/FLAC/OGG cleanly but doesn't support
-    AAC-in-m4a or some MP3 variants. Fall back to ffprobe for anything
-    soundfile rejects — ffprobe is already a hard dependency of the render
-    step (we shell out to ffmpeg for encoding), so this never widens the
-    install surface.
-    """
-    try:
-        return float(sf.info(str(audio_path)).duration)
-    except Exception:
-        pass
-    if shutil.which("ffprobe") is None:
-        raise RuntimeError(
-            f"Cannot probe audio duration for {audio_path}: "
-            "libsndfile cannot read this format and ffprobe is not on PATH."
-        )
-    result = subprocess.run(
-        [
-            "ffprobe", "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            str(audio_path),
-        ],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0 or not result.stdout.strip():
-        raise RuntimeError(
-            f"ffprobe failed for {audio_path}: {result.stderr.strip()}"
-        )
-    return float(result.stdout.strip())
+    from musicue.analysis import audio_io
+    return audio_io.get_duration(audio_path)
 
 
 def _encode_video(

@@ -66,19 +66,9 @@ def _load_full_audio_mono(audio_path: Path) -> tuple[np.ndarray, int]:
     cached = _AUDIO_CACHE.get(key)
     if cached is not None:
         return cached
-    try:
-        import soundfile as sf
+    from musicue.analysis import audio_io
 
-        data, file_sr = sf.read(str(audio_path))
-        if data.ndim > 1:
-            data = data.mean(axis=1)
-    except Exception:
-        # Compressed formats (m4a / mp3 / aac) aren't supported by libsndfile;
-        # fall back to librosa which goes through audioread + ffmpeg.
-        import librosa
-
-        data, file_sr = librosa.load(str(audio_path), sr=None, mono=True)
-    data = np.asarray(data, dtype=np.float32)
+    data, file_sr = audio_io.load_audio(audio_path, mono=True)
     _AUDIO_CACHE[key] = (data, int(file_sr))
     return _AUDIO_CACHE[key]
 

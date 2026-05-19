@@ -25,6 +25,7 @@ from pathlib import Path
 
 import soundfile as sf
 
+from musicue.analysis import audio_io
 from musicue.analysis.clap_reranker import attach_clap_labels, clap_version
 from musicue.analysis.curves import (
     compute_integrated_lufs,
@@ -144,17 +145,8 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
             return result
 
     sha256 = _sha256(audio_path)
-    try:
-        info = sf.info(str(audio_path))
-        duration_sec = info.frames / info.samplerate
-        sample_rate = info.samplerate
-    except sf.LibsndfileError:
-        # libsndfile can't probe compressed inputs (m4a/mp3/aac); use librosa
-        # which proxies through audioread + ffmpeg.
-        import librosa as _librosa
-
-        duration_sec = float(_librosa.get_duration(path=str(audio_path)))
-        sample_rate = int(_librosa.get_samplerate(str(audio_path)))
+    duration_sec = audio_io.get_duration(audio_path)
+    sample_rate = audio_io.get_samplerate(audio_path)
 
     run_dir = cfg.runs_dir / cache_key[:12]
 
