@@ -162,3 +162,135 @@ def test_events_in_window_uses_bisect_on_large_input() -> None:
     ts = [e["t"] for e in sliced]
     assert all(49.9 <= t <= 50.1 for t in ts)
     assert len(ts) == 21
+
+
+def _impulse_track(events_t):
+    from musicue.schemas import CueTrack
+
+    env = {"a": 0.02, "d": 0.20, "s": 0.0, "r": 0.0}
+    return CueTrack(
+        name="kick",
+        type="impulse",
+        timescale="micro",
+        events=[
+            {"t": t, "strength": 1.0, "envelope": env} for t in events_t
+        ],
+    )
+
+
+def _envelope_track():
+    from musicue.schemas import CueTrack
+
+    return CueTrack(
+        name="vocal_phrase",
+        type="envelope",
+        timescale="meso",
+        events=[
+            {
+                "t_start": 1.0,
+                "t_end": 3.0,
+                "strength": 1.0,
+                "envelope": {"a": 0.2, "d": 0.2, "s": 0.7, "r": 0.5},
+            }
+        ],
+    )
+
+
+def _step_track():
+    from musicue.schemas import CueTrack
+
+    return CueTrack(
+        name="section_change",
+        type="step",
+        timescale="macro",
+        events=[
+            {"t": 0.0, "value": 1, "label": "intro"},
+            {"t": 2.0, "value": 2, "label": "chorus"},
+        ],
+    )
+
+
+def _ramp_track():
+    from musicue.schemas import CueTrack
+
+    return CueTrack(
+        name="section_ramp",
+        type="ramp",
+        timescale="macro",
+        events=[
+            {
+                "t_start": 1.0,
+                "t_end": 2.0,
+                "from": 0.0,
+                "to": 1.0,
+                "shape": "linear",
+                "label": "intro->chorus",
+            }
+        ],
+    )
+
+
+def _continuous_track():
+    from musicue.schemas import CueTrack
+
+    return CueTrack(
+        name="energy",
+        type="continuous",
+        timescale="macro",
+        hop_sec=0.5,
+        values=[0.0, 0.5, 1.0],
+    )
+
+
+def test_fire_brightness_impulse_zero_before_event() -> None:
+    from musicue.visualize.lanes import fire_brightness
+
+    track = _impulse_track([1.0])
+    assert fire_brightness(track, t_now=0.5) == 0.0
+
+
+def test_fire_brightness_impulse_peaks_at_attack_end() -> None:
+    from musicue.visualize.lanes import fire_brightness
+
+    track = _impulse_track([1.0])
+    val = fire_brightness(track, t_now=1.02)
+    assert val == pytest.approx(1.0, abs=1e-2)
+
+
+def test_fire_brightness_envelope_pulses_at_t_start() -> None:
+    from musicue.visualize.lanes import fire_brightness
+
+    track = _envelope_track()
+    assert fire_brightness(track, t_now=0.5) == 0.0
+    assert fire_brightness(track, t_now=1.2) == pytest.approx(1.0, abs=1e-2)
+
+
+def test_fire_brightness_step_flashes_after_label_change() -> None:
+    from musicue.visualize.lanes import fire_brightness
+
+    track = _step_track()
+    assert fire_brightness(track, t_now=1.9) == 0.0
+    assert fire_brightness(track, t_now=2.0) == pytest.approx(1.0, abs=1e-2)
+    assert fire_brightness(track, t_now=2.5) == 0.0
+
+
+def test_fire_brightness_ramp_glows_during_active_window() -> None:
+    from musicue.visualize.lanes import fire_brightness
+
+    track = _ramp_track()
+    assert fire_brightness(track, t_now=1.5) == pytest.approx(0.5, abs=1e-2)
+
+
+def test_fire_brightness_continuous_tracks_value() -> None:
+    from musicue.visualize.lanes import fire_brightness
+
+    track = _continuous_track()
+    assert fire_brightness(track, t_now=0.5) == pytest.approx(0.5, abs=1e-2)
+    assert fire_brightness(track, t_now=1.0) == pytest.approx(1.0, abs=1e-2)
+
+
+def test_fire_brightness_continuous_outside_range_is_zero() -> None:
+    from musicue.visualize.lanes import fire_brightness
+
+    track = _continuous_track()
+    assert fire_brightness(track, t_now=5.0) == 0.0
