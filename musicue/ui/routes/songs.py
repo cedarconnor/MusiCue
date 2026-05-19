@@ -123,6 +123,27 @@ def list_songs(
     return {"songs": rows}
 
 
+@router.get("/songs/{song_id}/cue-video")
+def get_cue_video(song_id: str, request: Request) -> FileResponse:
+    """Serve the song's cue_video.mp4 if one was rendered during ingest."""
+    song_id = validate_song_id(song_id)
+    storage = request.app.state.storage
+    rec = storage.get_song(song_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="song not found")
+    analyses_root = storage.analyses_dir(song_id)
+    if analyses_root.exists():
+        for child in analyses_root.iterdir():
+            candidate = child / "cue_video.mp4"
+            if candidate.exists():
+                return FileResponse(
+                    str(candidate),
+                    media_type="video/mp4",
+                    filename=f"{rec.title or song_id}_cue_video.mp4",
+                )
+    raise HTTPException(status_code=404, detail="cue video not available")
+
+
 @router.get("/songs/{song_id}")
 def get_song(song_id: str, request: Request) -> dict:
     song_id = validate_song_id(song_id)

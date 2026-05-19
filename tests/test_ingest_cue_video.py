@@ -124,3 +124,48 @@ async def test_default_analyze_survives_render_failure(
         pool=None,
     )
     assert result == "abc"
+
+
+async def test_cue_video_route_returns_file_when_present(
+    tmp_path, make_app, synthetic_wav
+) -> None:
+    from httpx import ASGITransport, AsyncClient
+
+    from musicue.ui.storage import UIStorage
+
+    storage_root = tmp_path / "storage"
+    storage_root.mkdir()
+    app = make_app(storage_root)
+
+    storage: UIStorage = app.state.storage
+    rec = storage.register_source(synthetic_wav, title="t")
+    analyses_dir = storage.analyses_dir(rec.id)
+    run_dir = analyses_dir / "abc"
+    run_dir.mkdir(parents=True)
+    (run_dir / "cue_video.mp4").write_bytes(b"FAKEMP4")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.get(f"/api/songs/{rec.id}/cue-video")
+        assert r.status_code == 200
+        assert r.content == b"FAKEMP4"
+        assert r.headers["content-type"] == "video/mp4"
+
+
+async def test_cue_video_route_returns_404_when_missing(
+    tmp_path, make_app, synthetic_wav
+) -> None:
+    from httpx import ASGITransport, AsyncClient
+
+    from musicue.ui.storage import UIStorage
+
+    storage_root = tmp_path / "storage"
+    storage_root.mkdir()
+    app = make_app(storage_root)
+    storage: UIStorage = app.state.storage
+    rec = storage.register_source(synthetic_wav, title="t")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.get(f"/api/songs/{rec.id}/cue-video")
+        assert r.status_code == 404
