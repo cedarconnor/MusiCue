@@ -1,8 +1,6 @@
 """Tests for musicue.visualize."""
 from __future__ import annotations
 
-import math
-
 import pytest
 
 
@@ -523,3 +521,19 @@ def test_current_section_label_missing_track() -> None:
         source_sha256="x", grammar="g", duration_sec=1.0, tracks=[]
     )
     assert current_section_label(empty, t_now=0.0) is None
+
+
+def test_compose_frame_writes_png(tmp_path, full_cuesheet) -> None:
+    from musicue.visualize.cue_video import compose_frame
+
+    out = tmp_path / "frame.png"
+    compose_frame(
+        cuesheet=full_cuesheet,
+        t_now=2.0,
+        out_path=out,
+        width=640,
+        height=360,
+        window_sec=4.0,
+    )
+    assert out.exists()
+    assert out.stat().st_size > 1000
