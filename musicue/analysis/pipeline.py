@@ -75,6 +75,9 @@ def _version_dict(cfg: MusiCueConfig) -> dict:
         "drum_classifier_version": drum_classifier_version(drum_model_path),
         "beat_backend": cfg.analysis.beat_backend,
         "curve_hop_sec": cfg.analysis.curve_hop_sec,
+        "phrase_gap_sec": dict(sorted(cfg.analysis.phrase_gap_sec.items())),
+        "clap_top_k": cfg.analysis.clap_top_k,
+        "clap_threshold": cfg.analysis.clap_threshold,
     }
 
 
@@ -172,8 +175,13 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
         onsets[stem_name] = [OnsetEvent.model_validate(o) for o in detect_onsets(stem_path)]
 
     # --- Drum classification (best-effort) ---------------------------------
+    # Always run when the drums stem is available: classify_onsets_batch
+    # picks the CNN when models/drum_cnn.pt exists, otherwise falls back
+    # to a pure-DSP heuristic. Skipping the CNN path entirely is fine —
+    # the heuristic still populates kick/snare/hat so concert_visuals can
+    # build per-class lanes.
     drum_model_path = Path("models/drum_cnn.pt")
-    if drum_model_path.exists() and "drums" in stems:
+    if "drums" in stems:
         try:
             import numpy as np
 

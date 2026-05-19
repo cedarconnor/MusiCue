@@ -254,7 +254,7 @@ CedarToy synthesizes its `iChannel0` texture from MusiCue's events instead of ra
 
 The bundle is plain JSON, schema-versioned at `1.0`, typically 50–200 KB. Generate it once per song; multiple visual tools can consume the same file.
 
-**Note on drum reactivity:** the bundle's drum tracks only populate when MusiCue has a trained drum-classifier checkpoint at `models/drum_cnn.pt`. Without that file, the bundle still ships with beats, sections, MIDI, and energy curves — just not per-drum impulses. `musicue export-bundle` prints a loud warning when drums were onset-detected but not classified, so you'll know.
+**Note on drum reactivity:** every detected drum onset is classified into kick / snare / hat. When `models/drum_cnn.pt` is present the CNN handles it; otherwise MusiCue uses a built-in spectral-band heuristic that compares the energy in the low / mid / high band of the 50 ms after the hit and picks the dominant band. The heuristic ships with the package — no training step or extra download is needed for the bundle's per-drum tracks to populate.
 
 See [`musicue/compile/bundle.py`](musicue/compile/bundle.py) for the builder, and the [CedarToy AUDIO_SYSTEM.md](https://github.com/cedarconnor/cedartoy/blob/main/docs/AUDIO_SYSTEM.md) for the consumer side.
 
@@ -286,7 +286,7 @@ The pipeline degrades gracefully when these aren't installed:
 - **`allin1`** — joint beat/downbeat/section detection. Falls back to `librosa.beat.beat_track` + empty sections list.
 - **`basic-pitch`** — polyphonic MIDI transcription. Falls back to empty MIDI.
 - **`laion-clap`** — semantic event labeling. Falls back to no labels (≈4 GB model download on first use).
-- **`models/drum_cnn.pt`** — drum classifier checkpoint. Falls back to onsets without `drum_class`. Train via `scripts/train_drum_classifier.py` on ENST-Drums + MDB Drums.
+- **`models/drum_cnn.pt`** — optional drum classifier CNN checkpoint. When absent, MusiCue's built-in spectral-band heuristic classifies every drum onset into kick / snare / hat using a pure-DSP comparison of band energies. No training or extra download required.
 
 ## Development
 
@@ -511,7 +511,8 @@ re-run it from the CLI later.
 
 - `scripts/benchmark.py` — per-stage latency timer for the full pipeline
 - `scripts/make_qc_video.py` — waveform + onset/section overlay video (requires `ffmpeg` on PATH)
-- `scripts/train_drum_classifier.py` — drum classifier CNN training (requires HDF5 dataset)
+- `scripts/inspect_drum_alignment.py` — render a PNG comparing the drum stem waveform to detected onsets for visual QA
+- `scripts/patch_natten.py` — apply the NATTEN legacy-compat shim (run once after an `allin1` install)
 
 ## Status
 

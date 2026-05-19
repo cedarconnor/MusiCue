@@ -1,23 +1,19 @@
-"""Drum onset classifier CNN.
+"""Drum onset classification.
 
-A small 4-block convolutional network that classifies drum onsets into one of
-six categories (kick, snare, hat, tom, cymbal, other) from a 50ms log-mel
-patch around the onset time.
+Two execution paths:
 
-Architecture:
-    Conv(1->32) -> BN -> ReLU -> MaxPool(2)
-    Conv(32->64) -> BN -> ReLU -> MaxPool(2)
-    Conv(64->128) -> BN -> ReLU -> MaxPool(2)
-    Conv(128->256) -> BN -> ReLU -> MaxPool(2)
-    AdaptiveAvgPool(1, 1) -> Linear(256 -> n_classes)
+1. **CNN (preferred when a pretrained checkpoint is available)**.
+   `models/drum_cnn.pt` is loaded and inference is run per onset.
+
+2. **Heuristic (default, no training required)**. A pure-DSP spectral
+   classifier that buckets each onset's energy into low/mid/high bands
+   (kick / snare / hat). Imperfect but instantly available — no model
+   download, no training step. Used automatically when no checkpoint
+   is present.
 
 Inference contract:
     Input:  audio window (np.ndarray, mono, float32) at the given sample rate.
     Output: (drum_class: str in DRUM_CLASSES, confidence: float in [0, 1]).
-
-The classifier checkpoint (`models/drum_cnn.pt`) is optional. When the file
-is missing, `classify_onsets_batch` returns the input event list unchanged so
-callers can use this module as a no-op pass-through during development.
 """
 
 from __future__ import annotations
@@ -106,6 +102,63 @@ def classify_onset(
     return DRUM_CLASSES[idx], float(probs[idx])
 
 
+# ---- Heuristic (no-model) classifier ----
+
+# Frequency bands used by the heuristic. Tuned for a typical drum kit:
+#   kick:  fundamental + first harmonic mostly under ~180 Hz
+#   snare: shell + early decay sits in 150-2000 Hz
+#   hat:   shimmer / sizzle dominates above ~5 kHz
+_HEURISTIC_BANDS: dict[str, tuple[float, float]] = {
+    "kick": (20.0, 180.0),
+    "snare": (180.0, 2000.0),
+    "hat": (5000.0, 16000.0),
+}
+
+
+def _band_energy(audio_window: np.ndarray, sr: int, lo: float, hi: float) -> float:
+    """RMS energy in the [lo, hi] Hz band of `audio_window` via rFFT."""
+    if len(audio_window) == 0:
+        return 0.0
+    spec = np.fft.rfft(audio_window)
+    freqs = np.fft.rfftfreq(len(audio_window), 1.0 / sr)
+    mask = (freqs >= lo) & (freqs < hi)
+    if not mask.any():
+        return 0.0
+    return float(np.sqrt(np.mean(np.abs(spec[mask]) ** 2)))
+
+
+def classify_heuristic(
+    onsets: list[dict],
+    audio: np.ndarray,
+    sr: int = 44100,
+    window_ms: int = WINDOW_MS,
+) -> list[dict]:
+    """Spectral-band fallback classifier. Mutates and returns `onsets`.
+
+    For each onset, computes RMS energy in three drum-relevant bands
+    and picks the dominant band as the drum class. Confidence is the
+    dominant band's share of total band energy (≈0.33 = no signal,
+    ≈1.0 = entirely in one band).
+    """
+    band_names = list(_HEURISTIC_BANDS.keys())
+    for event in onsets:
+        t = float(event["t"])
+        window = _extract_window(audio, t, sr, window_ms=window_ms)
+        energies = np.array([
+            _band_energy(window, sr, *_HEURISTIC_BANDS[name])
+            for name in band_names
+        ])
+        total = float(energies.sum())
+        if total <= 1e-9:
+            event["drum_class"] = "other"
+            event["drum_class_conf"] = 0.0
+            continue
+        idx = int(energies.argmax())
+        event["drum_class"] = band_names[idx]
+        event["drum_class_conf"] = float(energies[idx] / total)
+    return onsets
+
+
 def classify_onsets_batch(
     onsets: list[dict],
     audio: np.ndarray,
@@ -114,11 +167,20 @@ def classify_onsets_batch(
     model_path: Path | None = None,
     device: str | None = None,
 ) -> list[dict]:
+    """Classify drum onsets in-place.
+
+    Preference order:
+      1. Explicit `model` argument — used for tests.
+      2. CNN loaded from `model_path` if it exists.
+      3. Heuristic spectral-band fallback (no training/download needed).
+    """
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     if model is None:
         if model_path is None or not model_path.exists():
-            return onsets  # no model checkpoint -- pass through unchanged
+            # No checkpoint available — heuristic fallback so the cuesheet
+            # still gets kick/snare/hat lanes populated.
+            return classify_heuristic(onsets, audio, sr=sr)
         state = torch.load(str(model_path), map_location=device, weights_only=True)
         model = DrumClassifierCNN(n_classes=len(DRUM_CLASSES))
         model.load_state_dict(state)
@@ -140,4 +202,4 @@ def drum_classifier_version(model_path: Path | None = None) -> str:
 
         h = hashlib.sha256(model_path.read_bytes()).hexdigest()[:8]
         return f"cnn-{h}"
-    return "not_trained"
+    return "heuristic"
