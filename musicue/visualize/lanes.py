@@ -209,3 +209,43 @@ def draw_step_lane(
                 color="white", fontsize=9,
                 zorder=2,
             )
+
+
+def draw_ramp_lane(
+    ax: Axes,
+    track: CueTrack,
+    t_now: float,
+    window_sec: float,
+) -> None:
+    """Render a ramp track: diagonal line shaped by easing."""
+    color = track_color(track.name)
+    events = spanning_events_in_window(
+        track.events or [], t_now, window_sec,
+        start_key="t_start", end_key="t_end",
+    )
+    for ev in events:
+        t_start = float(ev.get("t_start", 0.0))
+        t_end = float(ev.get("t_end", t_start))
+        v_from = float(ev.get("from", 0.0))
+        v_to = float(ev.get("to", 1.0))
+        shape = str(ev.get("shape", "linear"))
+
+        if t_end <= t_start:
+            continue
+        n = 24
+        xs = np.linspace(t_start, t_end, n)
+        ys = []
+        for x in xs:
+            frac = (x - t_start) / (t_end - t_start)
+            ys.append(v_from + (v_to - v_from) * ease(shape, frac))
+
+        if t_start <= t_now <= t_end:
+            alpha = 0.95
+            lw = 2.5
+        elif t_end < t_now <= t_end + 0.3:
+            alpha = 0.9 - (t_now - t_end) / 0.3 * 0.5
+            lw = 2.0
+        else:
+            alpha = 0.4
+            lw = 1.5
+        ax.plot(xs, ys, color=color, alpha=alpha, linewidth=lw)

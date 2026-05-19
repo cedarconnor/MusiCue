@@ -419,3 +419,28 @@ def test_lane_renderer_step_draws_segments_and_current_outline() -> None:
     assert "intro" in labels and "chorus" in labels
 
     plt.close(fig)
+
+
+def test_lane_renderer_ramp_draws_line() -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from musicue.visualize.lanes import draw_ramp_lane
+
+    track = _ramp_track()
+    fig, ax = plt.subplots()
+    ax.set_xlim(0.0, 5.0)
+    ax.set_ylim(0.0, 1.0)
+
+    draw_ramp_lane(ax, track, t_now=1.5, window_sec=5.0)
+
+    lines = [a for a in ax.get_lines() if len(a.get_xdata()) >= 2]
+    assert len(lines) >= 1
+    xs = lines[0].get_xdata()
+    ys = lines[0].get_ydata()
+    assert ys[0] < ys[-1]
+    assert min(xs) >= 1.0 - 1e-6
+    assert max(xs) <= 2.0 + 1e-6
+
+    plt.close(fig)
