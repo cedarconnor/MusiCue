@@ -537,3 +537,100 @@ def test_compose_frame_writes_png(tmp_path, full_cuesheet) -> None:
     )
     assert out.exists()
     assert out.stat().st_size > 1000
+
+
+# ---- Integration tests (require ffmpeg/ffprobe on PATH) ----
+
+
+def _have_ffmpeg() -> bool:
+    import shutil as _sh
+    return _sh.which("ffmpeg") is not None and _sh.which("ffprobe") is not None
+
+
+def _ffprobe(path) -> dict:
+    import json
+    import subprocess
+    out = subprocess.check_output([
+        "ffprobe", "-v", "error",
+        "-show_format", "-show_streams",
+        "-print_format", "json",
+        str(path),
+    ], text=True)
+    return json.loads(out)
+
+
+@pytest.fixture()
+def short_wav(tmp_path):
+    import numpy as np
+    import soundfile as sf
+
+    sr = 44100
+    duration = 2.0
+    t = np.linspace(0, duration, int(sr * duration))
+    sig = (0.2 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    p = tmp_path / "tone.wav"
+    sf.write(str(p), sig, sr)
+    return p
+
+
+@pytest.mark.integration
+def test_render_smoke_video(tmp_path, full_cuesheet, short_wav) -> None:
+    if not _have_ffmpeg():
+        pytest.skip("ffmpeg/ffprobe not on PATH")
+
+    from musicue.visualize import render_cue_video
+
+    out = tmp_path / "smoke.mp4"
+    full_cuesheet.duration_sec = 2.0
+    render_cue_video(
+        full_cuesheet, short_wav, out,
+        fps=10.0, width=240, height=120, window_sec=2.0,
+        workers=1,
+    )
+    assert out.exists()
+    meta = _ffprobe(out)
+    streams = {s["codec_type"] for s in meta["streams"]}
+    assert "video" in streams and "audio" in streams
+    video_stream = next(s for s in meta["streams"] if s["codec_type"] == "video")
+    nb_frames = int(video_stream.get("nb_frames", "0"))
+    assert 18 <= nb_frames <= 22
+
+
+@pytest.mark.integration
+def test_render_default_fps_is_2997(tmp_path, full_cuesheet, short_wav) -> None:
+    if not _have_ffmpeg():
+        pytest.skip("ffmpeg/ffprobe not on PATH")
+
+    from musicue.visualize import render_cue_video
+
+    out = tmp_path / "fps.mp4"
+    full_cuesheet.duration_sec = 2.0
+    render_cue_video(
+        full_cuesheet, short_wav, out,
+        width=240, height=120, workers=1,
+    )
+    meta = _ffprobe(out)
+    video_stream = next(s for s in meta["streams"] if s["codec_type"] == "video")
+    assert video_stream["r_frame_rate"] == "30000/1001"
+    assert video_stream["codec_name"] == "h264"
+    assert meta["format"]["format_name"].startswith("mov,mp4")
+
+
+@pytest.mark.integration
+def test_render_uses_audio_duration(tmp_path, full_cuesheet, short_wav, caplog) -> None:
+    if not _have_ffmpeg():
+        pytest.skip("ffmpeg/ffprobe not on PATH")
+
+    from musicue.visualize import render_cue_video
+
+    out = tmp_path / "dur.mp4"
+    full_cuesheet.duration_sec = 5.0
+    with caplog.at_level("WARNING"):
+        render_cue_video(
+            full_cuesheet, short_wav, out,
+            fps=10.0, width=240, height=120, workers=1,
+        )
+    assert "disagrees" in caplog.text
+    meta = _ffprobe(out)
+    duration = float(meta["format"]["duration"])
+    assert 1.8 <= duration <= 2.2
