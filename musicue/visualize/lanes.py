@@ -1,12 +1,13 @@
 """Per-type lane renderers + fire-panel brightness."""
 from __future__ import annotations
 
+import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
 
 from musicue.schemas import CueTrack
 from musicue.visualize.colors import track_color
-from musicue.visualize.cue_video import events_in_window
+from musicue.visualize.cue_video import events_in_window, spanning_events_in_window
 from musicue.visualize.envelopes import ease, sample_adsr
 
 _STEP_FLASH_SEC = 0.25
@@ -113,3 +114,53 @@ def draw_impulse_lane(
                 zorder=0,
             )
         )
+
+
+def draw_envelope_lane(
+    ax: Axes,
+    track: CueTrack,
+    t_now: float,
+    window_sec: float,
+) -> None:
+    """Render an envelope track: filled regions shaped by ADSR (or
+    shape_curve_from if present in the event dict)."""
+    color = track_color(track.name)
+    events = spanning_events_in_window(
+        track.events or [], t_now, window_sec,
+        start_key="t_start", end_key="t_end",
+    )
+    for ev in events:
+        t_start = float(ev.get("t_start", 0.0))
+        t_end = float(ev.get("t_end", t_start))
+        env = ev.get("envelope") or {}
+        shape_curve = ev.get("shape_curve_from")
+
+        n = 32
+        xs = np.linspace(t_start, t_end, n)
+        if shape_curve and isinstance(shape_curve, dict):
+            hop = float(shape_curve.get("hop_sec", 0.04))
+            values = list(shape_curve.get("values") or [])
+            ys = []
+            for x in xs:
+                idx = (x - t_start) / hop
+                if 0 <= idx < len(values) - 1:
+                    i = int(idx)
+                    frac = idx - i
+                    ys.append(values[i] + (values[i + 1] - values[i]) * frac)
+                elif idx >= len(values) - 1 and values:
+                    ys.append(values[-1])
+                else:
+                    ys.append(0.0)
+            mx = max(ys) if ys else 1.0
+            ys = [y / mx if mx > 0 else 0.0 for y in ys]
+        else:
+            ys = [sample_adsr(env, x - t_start) for x in xs]
+
+        if t_start <= t_now <= t_end:
+            alpha = 0.85
+        elif t_end < t_now:
+            alpha = 0.30
+        else:
+            alpha = 0.55
+
+        ax.fill_between(xs, 0.0, ys, color=color, alpha=alpha, linewidth=0)

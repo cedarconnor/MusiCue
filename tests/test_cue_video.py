@@ -347,3 +347,44 @@ def test_lane_renderer_impulse_no_overlay_when_no_event_firing() -> None:
     assert all((not p.get_alpha()) or p.get_alpha() < 0.01 for p in rects)
 
     plt.close(fig)
+
+
+def test_lane_renderer_envelope_draws_filled_shape() -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.collections import PolyCollection
+
+    from musicue.visualize.lanes import draw_envelope_lane
+
+    track = _envelope_track()
+    fig, ax = plt.subplots()
+    ax.set_xlim(0.0, 5.0)
+    ax.set_ylim(0.0, 1.0)
+
+    draw_envelope_lane(ax, track, t_now=2.0, window_sec=5.0)
+
+    polys = [c for c in ax.collections if isinstance(c, PolyCollection)]
+    assert len(polys) >= 1
+
+    plt.close(fig)
+
+
+def test_lane_renderer_envelope_skips_out_of_window() -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.collections import PolyCollection
+
+    from musicue.visualize.lanes import draw_envelope_lane
+
+    track = _envelope_track()
+    fig, ax = plt.subplots()
+    ax.set_xlim(0.0, 5.0)
+    ax.set_ylim(0.0, 1.0)
+
+    draw_envelope_lane(ax, track, t_now=20.0, window_sec=1.0)
+    polys = [c for c in ax.collections if isinstance(c, PolyCollection)]
+    assert len(polys) == 0
+
+    plt.close(fig)
