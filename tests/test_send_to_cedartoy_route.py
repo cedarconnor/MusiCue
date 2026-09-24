@@ -149,3 +149,58 @@ def test_send_to_cedartoy_with_stems(client, tmp_path):
 
     for name in ("drums", "bass", "vocals", "other"):
         assert (out / "stems" / f"{name}.wav").exists()
+
+
+# ---- output_folder validation ----
+
+
+@pytest.mark.parametrize("bad", ["/", "/etc/musicue-export", "/usr/share/x", "../escape"])
+def test_send_to_cedartoy_rejects_unsafe_output_folder(client, tmp_path, monkeypatch, bad):
+    c, root = client
+    sha = _seed_with_audio(tmp_path, root)
+    monkeypatch.chdir(tmp_path)
+    resp = c.post(
+        f"/api/songs/{sha}/analyses/{ANALYSIS_ID}/send-to-cedartoy",
+        json={"output_folder": bad, "grammar": "concert_visuals"},
+    )
+    assert resp.status_code == 400, resp.text
+
+
+def test_send_to_cedartoy_accepts_relative_default(client, tmp_path, monkeypatch):
+    """The UI's default ``exports/<song>`` stays working (resolved vs cwd)."""
+    c, root = client
+    sha = _seed_with_audio(tmp_path, root)
+    monkeypatch.chdir(tmp_path)
+    resp = c.post(
+        f"/api/songs/{sha}/analyses/{ANALYSIS_ID}/send-to-cedartoy",
+        json={"output_folder": "exports/Test Song", "grammar": "concert_visuals"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert (tmp_path / "exports" / "Test Song" / "song.musicue.json").exists()
+
+
+def test_send_to_cedartoy_force_analyze_bypasses_cache(client, tmp_path, monkeypatch):
+    import musicue.analysis.pipeline as pipeline
+    from musicue.schemas import AnalysisResult
+
+    c, root = client
+    sha = _seed_with_audio(tmp_path, root)
+    analysis_json = root / "songs" / sha / "analyses" / ANALYSIS_ID / "analysis.json"
+    seeded = AnalysisResult.model_validate_json(analysis_json.read_text())
+    calls: list[dict] = []
+
+    def _fake_run_analysis(audio_path, cfg, force=False):
+        calls.append({"force": force, "runs_dir": cfg.runs_dir})
+        return seeded
+
+    monkeypatch.setattr(pipeline, "run_analysis", _fake_run_analysis)
+    resp = c.post(
+        f"/api/songs/{sha}/analyses/{ANALYSIS_ID}/send-to-cedartoy",
+        json={
+            "output_folder": str(tmp_path / "forced"),
+            "grammar": "concert_visuals",
+            "force_analyze": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert calls == [{"force": True, "runs_dir": root / "songs" / sha / "analyses"}]

@@ -67,3 +67,41 @@ def test_cancel_unknown_job_returns_false() -> None:
         assert pool.cancel("never-submitted") is False
     finally:
         pool.shutdown()
+
+
+def test_submit_after_cancel_uses_fresh_pool() -> None:
+    """SIGTERM-ing a worker breaks the ProcessPoolExecutor; the next job
+    must still run instead of failing with BrokenProcessPool."""
+    pool = AnalyzePool(max_workers=1)
+    try:
+        cancelled_fut = pool.submit("job-slow", _slow_worker, {"sleep_sec": 30.0})
+        time.sleep(0.8)
+        assert pool.cancel("job-slow") is True
+        with pytest.raises(Exception):
+            cancelled_fut.result(timeout=10.0)
+
+        fut = pool.submit("job-next", _ok_worker, {"x": 21})
+        assert fut.result(timeout=20.0) == {"echo": 42}
+    finally:
+        pool.shutdown()
+
+
+def test_submit_recovers_when_pool_found_broken() -> None:
+    from concurrent.futures.process import BrokenProcessPool
+
+    pool = AnalyzePool(max_workers=1)
+    try:
+        real_pool = pool._pool
+
+        class _Broken:
+            def submit(self, *_a, **_k):
+                raise BrokenProcessPool("simulated")
+
+            def shutdown(self, *_a, **_k):
+                real_pool.shutdown(wait=False)
+
+        pool._pool = _Broken()  # type: ignore[assignment]
+        fut = pool.submit("job-d", _ok_worker, {"x": 1})
+        assert fut.result(timeout=20.0) == {"echo": 2}
+    finally:
+        pool.shutdown()

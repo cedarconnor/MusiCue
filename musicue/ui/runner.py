@@ -4,8 +4,12 @@ Cancellation strategy: each submitted job runs through a small wrapper
 that publishes its OS PID into a ``multiprocessing.Manager`` dict keyed by
 job_id. On cancel we look up the PID and ``os.kill(SIGTERM)`` it. On
 Windows ``os.kill`` with any non-CTRL signal is mapped to TerminateProcess
-by Python itself, so this is cross-platform. ProcessPoolExecutor detects
-the dead worker and spawns a replacement transparently.
+by Python itself, so this is cross-platform.
+
+Killing a worker marks the whole ProcessPoolExecutor as broken: every later
+``submit`` raises ``BrokenProcessPool``. So after a kill we swap in a fresh
+executor, and ``submit`` also recreates the executor if it finds it broken
+(e.g. a worker crashed on its own).
 
 This is best-effort. Mid-Demucs the GPU state may be left partially
 initialised; v0.5 hardens it. Sufficient for v0.1a's user-cancel needs.
@@ -14,7 +18,9 @@ from __future__ import annotations
 
 import os
 import signal
+import threading
 from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from multiprocessing import Manager
 from typing import Any, Callable
 
@@ -46,16 +52,36 @@ def _wrapped(
 
 class AnalyzePool:
     def __init__(self, max_workers: int = 1) -> None:
+        self._max_workers = max_workers
         self._pool = ProcessPoolExecutor(max_workers=max_workers)
+        self._pool_lock = threading.Lock()
         self._futures: dict[str, Future] = {}
         self._manager = Manager()
         self._pid_table = self._manager.dict()
 
+    def _replace_pool(self, broken: ProcessPoolExecutor) -> None:
+        """Swap ``broken`` for a fresh executor (no-op if already swapped)."""
+        with self._pool_lock:
+            if self._pool is not broken:
+                return
+            self._pool = ProcessPoolExecutor(max_workers=self._max_workers)
+        try:
+            broken.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+
     def submit(self, job_id: str, fn: Callable, *args, **kwargs) -> Future:
         fn_qual = f"{fn.__module__}:{fn.__qualname__}"
-        fut = self._pool.submit(
-            _wrapped, self._pid_table, job_id, fn_qual, args, kwargs
-        )
+        pool = self._pool
+        try:
+            fut = pool.submit(
+                _wrapped, self._pid_table, job_id, fn_qual, args, kwargs
+            )
+        except BrokenProcessPool:
+            self._replace_pool(pool)
+            fut = self._pool.submit(
+                _wrapped, self._pid_table, job_id, fn_qual, args, kwargs
+            )
         self._futures[job_id] = fut
         fut.add_done_callback(lambda _f, jid=job_id: self._futures.pop(jid, None))
         return fut
@@ -74,10 +100,14 @@ class AnalyzePool:
             return False
         if pid is None:
             return False
+        pool = self._pool
         try:
             os.kill(pid, signal.SIGTERM)
         except OSError:
             return False
+        # The executor is now (or is about to be) broken; later jobs go to a
+        # fresh one instead of failing with BrokenProcessPool.
+        self._replace_pool(pool)
         return True
 
     def is_running(self, job_id: str) -> bool:
