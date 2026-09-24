@@ -132,3 +132,114 @@ def test_drum_classifier_version_reports_heuristic_when_no_checkpoint(tmp_path):
     missing = tmp_path / "missing.pt"
     v = drum_classifier_version(missing)
     assert "heuristic" in v.lower() or v == "not_trained"
+
+
+# ---- Band-split onset detection ----
+
+
+def _synth_loop(sr: int = 44100, bars: int = 4, offset: float = 0.5):
+    """120 BPM loop: kick on quarters, snare on 2 & 4, closed hat on 8ths.
+
+    Returns (audio, quarter_times, eighth_times, backbeat_times).
+    """
+    import scipy.signal as ss
+
+    beat = 0.5
+    n_quarters = bars * 4
+    n = int((offset + n_quarters * beat + 1.0) * sr)
+    audio = np.zeros(n, dtype=np.float32)
+    rng = np.random.default_rng(0)
+
+    def add(t: float, x: np.ndarray) -> None:
+        i = int(round(t * sr))
+        audio[i:i + len(x)] += x[: n - i].astype(np.float32)
+
+    # Kick: pitch-swept sine (130 -> 50 Hz) with a long decaying tail.
+    tk = np.arange(int(0.45 * sr)) / sr
+    freq = 50.0 + 80.0 * np.exp(-tk / 0.03)
+    kick = 0.9 * np.sin(2 * np.pi * np.cumsum(freq) / sr) * np.exp(-tk / 0.08)
+    kick[:44] *= np.linspace(0.0, 1.0, 44)
+    # Snare: band-passed noise + body tone.
+    tn = np.arange(int(0.3 * sr)) / sr
+    b, a = ss.butter(4, [200, 2000], btype="band", fs=sr)
+    snare = (1.5 * ss.lfilter(b, a, rng.standard_normal(len(tn)))
+             + 0.3 * np.sin(2 * np.pi * 190 * tn)) * np.exp(-tn / 0.04)
+    # Hat: high-passed noise, very short.
+    th = np.arange(int(0.1 * sr)) / sr
+    bh, ah = ss.butter(4, 7000, btype="high", fs=sr)
+    hat = 0.4 * ss.lfilter(bh, ah, rng.standard_normal(len(th))) * np.exp(-th / 0.012)
+
+    quarters = [offset + q * beat for q in range(n_quarters)]
+    eighths = [offset + e * beat / 2 for e in range(n_quarters * 2)]
+    backbeats = [t for q, t in enumerate(quarters) if q % 4 in (1, 3)]
+    for t in quarters:
+        add(t, kick)
+    for t in backbeats:
+        add(t, snare)
+    for t in eighths:
+        add(t, hat)
+    return audio, quarters, eighths, backbeats
+
+
+def _times(events: list[dict], cls: str) -> list[float]:
+    return [e["t"] for e in events if e["drum_class"] == cls]
+
+
+def _matches(detected: list[float], expected: list[float], tol: float) -> bool:
+    """Every expected time has a detection within tol, and vice versa."""
+    return (
+        all(any(abs(d - e) <= tol for d in detected) for e in expected)
+        and all(any(abs(d - e) <= tol for e in expected) for d in detected)
+    )
+
+
+def test_band_split_detects_kick_snare_hat_on_synthetic_loop():
+    from musicue.analysis.drum_classifier import detect_drum_onsets_by_band
+
+    sr = 44100
+    audio, quarters, eighths, backbeats = _synth_loop(sr)
+    events = detect_drum_onsets_by_band(audio, sr=sr)
+    tol = 0.03
+
+    kicks = _times(events, "kick")
+    snares = _times(events, "snare")
+    hats = _times(events, "hat")
+
+    assert _matches(kicks, quarters, tol), kicks
+    assert _matches(snares, backbeats, tol), snares
+    # Hats: every 8th — the off-beats (not swallowed by the kick tail) and
+    # the on-beats (not merged into the simultaneous kick).
+    assert _matches(hats, eighths, tol), hats
+    off_beats = [t for t in eighths if t not in quarters]
+    assert all(any(abs(h - t) <= tol for h in hats) for t in off_beats)
+
+    for e in events:
+        assert 0.0 < e["strength"] <= 1.0
+        assert 0.0 < e["drum_class_conf"] <= 1.0
+        assert e["timescale"] == "micro"
+    assert [e["t"] for e in events] == sorted(e["t"] for e in events)
+
+
+def test_band_split_silence_returns_empty():
+    from musicue.analysis.drum_classifier import detect_drum_onsets_by_band
+
+    assert detect_drum_onsets_by_band(np.zeros(44100, dtype=np.float32), sr=44100) == []
+
+
+def test_heuristic_version_is_bandsplit():
+    from musicue.analysis.drum_classifier import drum_classifier_version
+
+    assert drum_classifier_version(None) == "heuristic-bandsplit-v1"
+
+
+def test_heuristic_path_does_not_import_torch():
+    import subprocess
+    import sys
+
+    code = (
+        "import sys, numpy as np\n"
+        "from musicue.analysis.drum_classifier import detect_drum_onsets_by_band\n"
+        "detect_drum_onsets_by_band(np.zeros(4096, dtype=np.float32), sr=44100)\n"
+        "assert 'torch' not in sys.modules, 'torch imported'\n"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)

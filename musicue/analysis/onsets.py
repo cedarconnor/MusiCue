@@ -7,6 +7,23 @@ import numpy as np
 import soundfile as sf
 
 
+def _robust_peak_strengths(peak_values: np.ndarray) -> np.ndarray:
+    """Scale onset-envelope peak heights to [0, 1].
+
+    Divides by the 99th percentile of the *peak* values rather than the
+    global envelope max, so one freak transient doesn't squash every other
+    onset toward zero.
+    """
+    if peak_values.size == 0:
+        return peak_values
+    ref = float(np.percentile(peak_values, 99))
+    if ref <= 0:
+        ref = float(peak_values.max())
+    if ref <= 0:
+        return np.zeros_like(peak_values)
+    return np.clip(peak_values / ref, 0.0, 1.0)
+
+
 def detect_onsets(audio_path: Path, sr: int = 22050) -> list[dict]:
     data, native_sr = sf.read(str(audio_path), dtype="float32", always_2d=False)
     if data.ndim > 1:
@@ -18,11 +35,14 @@ def detect_onsets(audio_path: Path, sr: int = 22050) -> list[dict]:
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
     if onset_env.max() == 0:
         return []
-    frames = librosa.onset.onset_detect(
+    # Detect at the envelope *peaks* (backtrack=False) so strength is read
+    # where the onset is actually salient. Backtracked frames sit on the
+    # preceding local minimum, where the envelope is ~0 by construction.
+    peaks = librosa.onset.onset_detect(
         y=y,
         sr=sr,
         onset_envelope=onset_env,
-        backtrack=True,
+        backtrack=False,
         pre_max=3,
         post_max=3,
         pre_avg=3,
@@ -30,16 +50,20 @@ def detect_onsets(audio_path: Path, sr: int = 22050) -> list[dict]:
         delta=0.07,
         wait=int(0.03 * sr / 512),
     )
-    times = librosa.frames_to_time(frames, sr=sr)
-    peak = float(onset_env.max())
+    if len(peaks) == 0:
+        return []
+    # Timestamps still use the backtracked (attack-start) frame.
+    starts = librosa.onset.onset_backtrack(peaks, onset_env)
+    times = librosa.frames_to_time(starts, sr=sr)
+    strengths = _robust_peak_strengths(onset_env[peaks])
     return [
         {
             "t": float(t),
-            "strength": float(np.clip(onset_env[f] / peak, 0.0, 1.0)),
+            "strength": float(s),
             "timescale": "micro",
             "drum_class": None,
             "drum_class_conf": None,
             "labels": [],
         }
-        for t, f in zip(times, frames)
+        for t, s in zip(times, strengths)
     ]

@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from musicue.analysis.transitions import derive_transitions
@@ -66,3 +67,45 @@ def test_derive_transitions_ramp_evidence_keys():
 
 def test_no_sections_returns_empty():
     assert derive_transitions([], _make_flux(), _make_lufs()) == []
+
+
+def _flux_steps(levels: list[tuple[float, float]], hop_sec=0.04, n=2500):
+    """Flux curve that sits at ``level`` from each ``(t_from, level)`` on."""
+    rng = np.random.default_rng(0)
+    values = np.zeros(n)
+    for t_from, level in levels:
+        values[int(t_from / hop_sec):] = level
+    values += 0.02 * rng.standard_normal(n)
+    return {"hop_sec": hop_sec, "values": values.tolist()}
+
+
+def test_spectral_flux_rise_is_informative():
+    # intro (quiet) -> verse (busier) -> chorus (same as verse)
+    flux = _flux_steps([(0.0, 0.2), (17.2, 1.0)])
+    transitions = derive_transitions(_make_sections(), flux, _make_lufs())
+    rise_into_verse = transitions[0]["ramp_evidence"]["spectral_flux_rise"]
+    rise_into_chorus = transitions[1]["ramp_evidence"]["spectral_flux_rise"]
+    assert rise_into_verse > 0.8
+    assert rise_into_chorus == pytest.approx(0.5, abs=0.1)
+
+
+def test_spectral_flux_rise_below_half_for_drop():
+    flux = _flux_steps([(0.0, 1.0), (51.6, 0.2)])
+    transitions = derive_transitions(_make_sections(), flux, _make_lufs())
+    assert transitions[1]["ramp_evidence"]["spectral_flux_rise"] < 0.2
+    for tr in transitions:
+        assert 0.0 <= tr["ramp_evidence"]["spectral_flux_rise"] <= 1.0
+
+
+def test_section_ramp_filters_follow_new_scale():
+    """Grammar thresholds sit above 0.5 (= no change) after the rescale."""
+    from musicue.compile.grammar import load_grammar
+    from musicue.compile.scoring import evaluate_filter
+
+    flat = {"ramp_evidence": {"spectral_flux_rise": 0.5}}
+    rise = {"ramp_evidence": {"spectral_flux_rise": 0.9}}
+    for name in ("concert_visuals", "camera_edit"):
+        grammar = load_grammar(name)
+        (track,) = [t for t in grammar.tracks if t.name == "section_ramp"]
+        assert evaluate_filter(track.filter, rise) is True
+        assert evaluate_filter(track.filter, flat) is False

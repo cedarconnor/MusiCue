@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 import soundfile as sf
 
 from musicue.analysis.pipeline import _version_dict, _write_run_artifacts
@@ -78,3 +79,57 @@ def test_version_dict_includes_behavior_affecting_analysis_settings():
     assert versions["phrase_gap_sec"] == {"vocals": 1.2, "other": 0.2}
     assert versions["clap_top_k"] == 7
     assert versions["clap_threshold"] == 0.8
+
+
+def test_version_dict_includes_code_versions():
+    import musicue
+    from musicue.analysis import pipeline
+
+    versions = _version_dict(MusiCueConfig())
+    assert versions["musicue_version"] == musicue.__version__
+    assert versions["analysis_algo_version"] == pipeline.ANALYSIS_ALGO_VERSION
+
+
+def test_cache_key_changes_with_analysis_algo_version(tmp_path, monkeypatch):
+    from musicue.analysis import pipeline
+    from musicue.cache import build_audio_cache_key
+
+    audio = _wav(tmp_path)
+    cfg = MusiCueConfig()
+    key_a = build_audio_cache_key(audio, _version_dict(cfg))
+    monkeypatch.setattr(pipeline, "ANALYSIS_ALGO_VERSION", "test-bump")
+    key_b = build_audio_cache_key(audio, _version_dict(cfg))
+    assert key_a != key_b
+
+
+class _StopPipeline(Exception):
+    pass
+
+
+def _stop(*_a, **_k):
+    raise _StopPipeline
+
+
+def test_run_analysis_force_bypasses_cache(tmp_path, monkeypatch):
+    from musicue.analysis import pipeline
+    from musicue.cache import Cache
+
+    audio = _wav(tmp_path)
+    cfg = MusiCueConfig(cache_dir=tmp_path / "cache", runs_dir=tmp_path / "runs")
+    lookups: list[str] = []
+
+    def _fake_get(self, key, suffix):
+        lookups.append(key)
+        return None
+
+    monkeypatch.setattr(Cache, "get", _fake_get)
+    # Stop right after the cache check: _sha256 is the first fresh-path step.
+    monkeypatch.setattr(pipeline, "_sha256", _stop)
+
+    with pytest.raises(_StopPipeline):
+        pipeline.run_analysis(audio, cfg)
+    assert len(lookups) == 1
+
+    with pytest.raises(_StopPipeline):
+        pipeline.run_analysis(audio, cfg, force=True)
+    assert len(lookups) == 1, "force=True must not consult the cache"

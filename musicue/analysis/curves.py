@@ -44,9 +44,14 @@ def compute_lufs_curve(audio_path: Path, hop_sec: float = 0.04) -> dict:
     window_samples = int(_BS1770_WINDOW * rate)
     n = len(data)
     values: list[float] = []
+    half = window_samples // 2
     for i in range(0, n, hop):
-        end = min(i + window_samples, n)
-        start = max(0, end - window_samples)
+        # Centered window [i - 0.2s, i + 0.2s] so the value stamped at i
+        # describes the audio around i, not the 400 ms after it. At the
+        # edges the window is shifted (not shrunk) to stay inside the file,
+        # since BS.1770 needs a full 400 ms block.
+        start = max(0, min(i - half, n - window_samples))
+        end = min(n, start + window_samples)
         chunk = data[start:end]
         try:
             loudness = meter.integrated_loudness(chunk)
