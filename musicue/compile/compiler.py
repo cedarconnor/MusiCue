@@ -58,7 +58,10 @@ def _coerce_timescale(value: str | None, default: _Timescale = "micro") -> _Time
 def _resolve_source(source: str, analysis: AnalysisResult) -> list[dict]:
     """Resolve a grammar source string to a list of event dicts."""
     if source == "beats":
-        return [b.model_dump() for b in analysis.beats]
+        # ``first_bar`` lets bar-relative filters (every_nth) count from the
+        # song's actual first bar instead of assuming 0-indexed bars.
+        first_bar = min((b.bar for b in analysis.beats), default=0)
+        return [{**b.model_dump(), "first_bar": first_bar} for b in analysis.beats]
     if source == "sections":
         return [s.model_dump() for s in analysis.sections]
     if source == "section_transitions":

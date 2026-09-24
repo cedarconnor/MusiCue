@@ -26,10 +26,23 @@ PHRASE_CANDIDATE_LENGTHS: tuple[int, ...] = (16, 8, 4)
 FILL_ZSCORE_THRESHOLD = 1.5
 
 
+def _first_bar(analysis: AnalysisResult) -> int:
+    """Lowest bar number in the beat grid.
+
+    Beat backends number bars from 1 (allin1 / librosa fallback), older
+    fixtures from 0 -- derive the origin from the data instead of assuming.
+    Every per-bar list in this module is indexed by ``bar - first_bar``;
+    PhraseBlock / FillEvent carry real bar numbers.
+    """
+    if not analysis.beats:
+        return 0
+    return min(b.bar for b in analysis.beats)
+
+
 def _bar_count(analysis: AnalysisResult) -> int:
     if not analysis.beats:
         return 0
-    return max(b.bar for b in analysis.beats) + 1
+    return max(b.bar for b in analysis.beats) - _first_bar(analysis) + 1
 
 
 def _drum_onsets(analysis: AnalysisResult) -> list[OnsetEvent]:
@@ -37,15 +50,15 @@ def _drum_onsets(analysis: AnalysisResult) -> list[OnsetEvent]:
 
 
 def _bar_t_ranges(analysis: AnalysisResult) -> list[tuple[float, float]]:
-    """For each bar index, the [t_start, t_end) of that bar."""
+    """For each bar (index ``bar - first_bar``), the [t_start, t_end) of that bar."""
     by_bar: dict[int, list[float]] = defaultdict(list)
     for b in analysis.beats:
         by_bar[b.bar].append(b.t)
     if not by_bar:
         return []
-    bar_count = max(by_bar) + 1
+    first = min(by_bar)
     ranges: list[tuple[float, float]] = []
-    for i in range(bar_count):
+    for i in range(first, max(by_bar) + 1):
         beats = sorted(by_bar.get(i, []))
         if not beats:
             ranges.append((0.0, 0.0))
@@ -125,6 +138,7 @@ def _section_phrase_blocks(
 ) -> list[PhraseBlock]:
     """Slice phrase blocks per section, picking the best period within each."""
     blocks: list[PhraseBlock] = []
+    first = _first_bar(analysis)
     if not analysis.sections:
         # No sections: treat the whole song as one virtual section.
         period, conf = _autocorrelate_period(bar_counts, PHRASE_CANDIDATE_LENGTHS)
@@ -134,7 +148,7 @@ def _section_phrase_blocks(
             end = min(start + period, len(bar_counts))
             blocks.append(
                 PhraseBlock(
-                    bar_start=start, bar_end=end, length=period,
+                    bar_start=first + start, bar_end=first + end, length=period,
                     section_label="", confidence=conf,
                 )
             )
@@ -158,8 +172,8 @@ def _section_phrase_blocks(
                 continue
             blocks.append(
                 PhraseBlock(
-                    bar_start=chunk[0],
-                    bar_end=chunk[-1] + 1,
+                    bar_start=first + chunk[0],
+                    bar_end=first + chunk[-1] + 1,
                     length=len(chunk),
                     section_label=section.label,
                     confidence=conf,
@@ -182,7 +196,9 @@ def _detect_fills(
     var = sum((c - mean) ** 2 for c in bar_counts) / n
     std = var ** 0.5 or 1.0
 
-    end_bars = {b.bar_end - 1 for b in blocks}
+    first = _first_bar(analysis)
+    # Block bounds are real bar numbers; convert to list indices.
+    end_bars = {b.bar_end - 1 - first for b in blocks}
 
     fills: list[FillEvent] = []
     for bar_idx, count in enumerate(bar_counts):
@@ -195,7 +211,7 @@ def _detect_fills(
             leads_into = nxt if nxt and nxt != here else None
             fills.append(
                 FillEvent(
-                    bar=bar_idx,
+                    bar=first + bar_idx,
                     t_start=t_start,
                     t_end=t_end,
                     density_zscore=z,
@@ -220,10 +236,11 @@ def _syncopation_per_bar(
     for b in analysis.beats:
         by_bar[b.bar].append(b.t)
 
+    first = min(by_bar) if by_bar else 0
     scores: list[float] = []
     j = 0
     for i, (t_start, t_end) in enumerate(bar_t_ranges):
-        bar_beats = sorted(by_bar.get(i, []))
+        bar_beats = sorted(by_bar.get(first + i, []))
         if not bar_beats:
             scores.append(0.0)
             continue
@@ -290,13 +307,15 @@ def populate_beat_pattern_fields(analysis: AnalysisResult) -> AnalysisResult:
             bar_to_phrase[bar_idx] = (phrase_idx, offset + 1, p.length)
 
     syncopation = out.patterns.syncopation_per_bar
+    first = _first_bar(out)
 
     for b in out.beats:
         info = bar_to_phrase.get(b.bar)
         if info is not None:
             b.phrase_id, b.phrase_position, b.phrase_length = info
         b.is_fill = b.bar in fill_bars
-        if 0 <= b.bar < len(syncopation):
-            b.syncopation = syncopation[b.bar]
+        idx = b.bar - first
+        if 0 <= idx < len(syncopation):
+            b.syncopation = syncopation[idx]
 
     return out

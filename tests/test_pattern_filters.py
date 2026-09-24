@@ -96,3 +96,42 @@ def test_phrase_position_field_comparison():
 def test_syncopation_threshold():
     assert evaluate_filter("syncopation > 0.4", {"syncopation": 0.5}) is True
     assert evaluate_filter("syncopation > 0.4", {"syncopation": 0.3}) is False
+
+
+def test_every_nth_counts_from_first_bar_when_one_indexed():
+    # Real beat backends number bars from 1; the compiler stamps first_bar.
+    fires = [
+        bar for bar in range(1, 13)
+        if evaluate_filter("every_nth(4)", {"bar": bar, "first_bar": 1})
+    ]
+    assert fires == [1, 5, 9]
+
+
+def test_every_nth_offset_relative_to_first_bar():
+    ev = {"first_bar": 1}
+    assert evaluate_filter("every_nth(8, offset=4)", {**ev, "bar": 5}) is True
+    assert evaluate_filter("every_nth(8, offset=4)", {**ev, "bar": 4}) is False
+
+
+def test_compiler_stamps_first_bar_on_beat_events():
+    from musicue.compile.compiler import _resolve_source
+    from musicue.schemas import AnalysisConfig, AnalysisResult, BeatEvent, SourceInfo
+
+    beats = [
+        BeatEvent(t=i * 0.5, beat_in_bar=i % 4 + 1, bar=i // 4 + 1,
+                  is_downbeat=i % 4 == 0, confidence=1.0)
+        for i in range(16)
+    ]
+    analysis = AnalysisResult(
+        source=SourceInfo(path="x.wav", sha256="abc", duration_sec=8.0, sample_rate=44100),
+        analysis_config=AnalysisConfig(),
+        stems={},
+        beats=beats,
+    )
+    events = _resolve_source("beats", analysis)
+    assert all(e["first_bar"] == 1 for e in events)
+    downbeats = [
+        e["bar"] for e in events
+        if e["is_downbeat"] and evaluate_filter("every_nth(2)", e)
+    ]
+    assert downbeats == [1, 3]

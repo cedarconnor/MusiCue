@@ -207,9 +207,12 @@ def evaluate_filter(expr: str | None, event: dict) -> bool:
         length = event.get("phrase_length")
         return pos is not None and length is not None and pos == length
 
-    # every_nth(N, offset=K) — bar-level periodic selector. Matches when the
-    # event's bar (mod N) equals offset (default 0). Used for "every 4th beat",
-    # "every 8 bars from bar 0", etc.
+    # every_nth(N, offset=K) — bar-level periodic selector, counted from the
+    # song's first bar. Matches when (bar - first_bar) mod N equals offset
+    # (default 0), so every_nth(4) fires on the 1st, 5th, 9th… bar whether
+    # the beat backend numbers bars from 1 (allin1 / librosa) or 0. The
+    # compiler stamps ``first_bar`` on beat events; events without it are
+    # treated as 0-indexed.
     m = _RE_EVERY_NTH.fullmatch(expr)
     if m:
         n = int(m.group(1))
@@ -218,7 +221,8 @@ def evaluate_filter(expr: str | None, event: dict) -> bool:
         if bar is None:
             return False
         try:
-            return (int(bar) - offset) % n == 0
+            first_bar = int(event.get("first_bar") or 0)
+            return (int(bar) - first_bar - offset) % n == 0
         except (TypeError, ValueError):
             return False
 
