@@ -226,8 +226,15 @@ class StemEnergyCurve(BaseModel):
     values: list[float] = Field(default_factory=list)
 
 
+class ControlCurve(BaseModel):
+    """A dense, already-normalized (0..1) control curve (bundle 1.3)."""
+
+    hop_sec: float
+    values: list[float] = Field(default_factory=list)
+
+
 class MusiCueBundle(BaseModel):
-    schema_version: str = "1.2"
+    schema_version: str = "1.3"
     source_sha256: str
     decoded_audio_sha256: str | None = None
     duration_sec: float
@@ -244,5 +251,10 @@ class MusiCueBundle(BaseModel):
 
     stems_energy: dict[str, StemEnergyCurve] = Field(default_factory=dict)
     global_energy: StemEnergyCurve
+
+    # 1.3: dense 0..1 controls on one shared grid -- "energy_fast",
+    # "brightness", "build", "onset_density". A key is absent when its
+    # inputs are missing from the analysis.
+    controls: dict[str, ControlCurve] = Field(default_factory=dict)
 
     cuesheet: CueSheet

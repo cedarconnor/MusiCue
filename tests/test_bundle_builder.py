@@ -73,7 +73,7 @@ def test_sha_cross_check_raises_on_mismatch():
 
 def test_empty_analysis_yields_minimal_bundle():
     bundle = build_bundle(_analysis(), _cuesheet())
-    assert bundle.schema_version == "1.2"
+    assert bundle.schema_version == "1.3"
     assert bundle.duration_sec == 10.0
     assert bundle.sections == []
     assert bundle.drums == {}
@@ -319,3 +319,119 @@ def test_midi_energy_uses_max_not_sum_over_polyphony():
     analysis.midi = {"other": [MidiNote(t=0.02, duration=1.0, pitch=60, velocity=127)]}
     energy = build_bundle(analysis, _cuesheet()).midi_energy["other"].values
     assert energy[0] == pytest.approx(0.5)
+
+
+# ---- Schema 1.3: controls + beat phrase fields ----
+
+
+def _song_analysis() -> AnalysisResult:
+    """32 s at 120 bpm: quiet verse (0-16 s, sparse drums) -> loud chorus
+    (16-32 s, busy drums). Bars numbered from 1 like the real backends."""
+    from musicue.schemas import BeatEvent
+
+    duration, hop = 32.0, 0.04
+    beats = [
+        BeatEvent(t=i * 0.5, beat_in_bar=i % 4 + 1, bar=i // 4 + 1,
+                  is_downbeat=i % 4 == 0, confidence=0.9)
+        for i in range(64)
+    ]
+    sections = [
+        SectionEvent(start=0.0, end=16.0, label="verse", confidence=0.9),
+        SectionEvent(start=16.0, end=32.0, label="chorus", confidence=0.9),
+    ]
+    analysis = make_analysis_fixture(sections=sections, duration_sec=duration)
+    analysis.beats = beats
+    n = int(duration / hop + 1e-6)
+    half = n // 2
+    analysis.curves = {
+        "lufs": TimedCurve(hop_sec=hop, values=[-24.0] * half + [-10.0] * (n - half)),
+        "rms_fast": TimedCurve(
+            hop_sec=hop, values=[0.0] * 10 + [0.03] * (half - 10) + [0.3] * (n - half)
+        ),
+        "spectral_centroid": TimedCurve(hop_sec=hop, values=[800.0] * half + [3000.0] * (n - half)),
+    }
+    onsets = [
+        OnsetEvent(t=b.t, strength=1.0, drum_class="kick") for b in beats[:32] if b.is_downbeat
+    ]
+    onsets += [
+        OnsetEvent(t=b.t + k * 0.125, strength=0.8, drum_class=cls)
+        for b in beats[32:] for k, cls in enumerate(("kick", "hat", "snare", "hat"))
+    ]
+    analysis.onsets = {"drums": onsets}
+    return analysis
+
+
+def test_bundle_1_3_controls_share_grid_and_are_normalized():
+    bundle = build_bundle(_song_analysis(), make_cuesheet_fixture(duration_sec=32.0))
+    controls = bundle.controls
+    assert set(controls) == {"energy_fast", "brightness", "build", "onset_density"}
+    for name, c in controls.items():
+        assert c.hop_sec == 0.04, name
+        assert len(c.values) == 800, name
+        assert all(0.0 <= v <= 1.0 for v in c.values), name
+
+    ef = controls["energy_fast"].values
+    assert max(ef[:10]) == 0.0              # silent frames
+    assert max(ef[20:390]) < 0.2 and min(ef[410:]) > 0.8
+    br = controls["brightness"].values
+    assert br[:10] == [0.0] * 10            # silent frames
+    assert max(br[20:390]) < 0.2 and min(br[410:]) > 0.8
+    od = controls["onset_density"].values
+    assert max(od[20:350]) < 0.3 and od[600] == pytest.approx(1.0)
+
+    # Quiet verse -> loud chorus: 8-bar (16 s) window clamped to the verse
+    # start, ramping to the boundary at 16 s and dropping to 0 there.
+    build = controls["build"].values
+    assert build[0] == 0.0
+    assert build[200] == pytest.approx(0.25)
+    assert build[399] > 0.99
+    assert build[400] == 0.0 and max(build[400:]) == 0.0
+
+
+def test_bundle_beats_carry_zero_based_phrase_fields():
+    analysis = _song_analysis()
+    assert analysis.patterns is None  # never ran detect_patterns
+    beats = build_bundle(analysis, make_cuesheet_fixture(duration_sec=32.0)).beats
+
+    assert len(beats) == 64
+    assert all(b.phrase_id is not None for b in beats)
+    assert all(b.phrase_length is not None for b in beats)
+    # 0-based bar index within the phrase; first bar of the song opens one.
+    assert beats[0].phrase_position == 0
+    for b in beats:
+        assert 0 <= b.phrase_position < b.phrase_length
+    # Dumped JSON carries the fields for CedarToy.
+    import json
+
+    doc = json.loads(build_bundle(analysis, make_cuesheet_fixture(duration_sec=32.0))
+                     .model_dump_json())
+    assert {"phrase_id", "phrase_position", "phrase_length", "is_fill"} <= set(doc["beats"][0])
+    # The input analysis keeps its own (1-based) convention untouched.
+    assert analysis.beats[0].phrase_position is None
+
+
+def test_bundle_beats_shift_existing_pattern_fields():
+    from musicue.analysis.patterns import populate_beat_pattern_fields
+
+    analysis = populate_beat_pattern_fields(_song_analysis())
+    positions = [b.phrase_position for b in analysis.beats]
+    fills = [b.is_fill for b in analysis.beats]
+    beats = build_bundle(analysis, make_cuesheet_fixture(duration_sec=32.0)).beats
+    assert [b.phrase_position for b in beats] == [p - 1 for p in positions]
+    assert [b.is_fill for b in beats] == fills
+
+
+def test_bundle_controls_absent_without_inputs():
+    controls = build_bundle(_analysis(), _cuesheet()).controls
+    # No curves, no beats: only the (all-zero) build curve can be rendered.
+    assert set(controls) == {"build"}
+    assert controls["build"].values == [0.0] * 250
+
+
+def test_bundle_loud_to_quiet_has_no_build():
+    analysis = _song_analysis()
+    analysis.curves["lufs"] = TimedCurve(
+        hop_sec=0.04, values=list(reversed(analysis.curves["lufs"].values))
+    )
+    build = build_bundle(analysis, make_cuesheet_fixture(duration_sec=32.0)).controls["build"]
+    assert max(build.values) == 0.0

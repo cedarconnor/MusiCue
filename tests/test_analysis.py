@@ -165,6 +165,30 @@ def test_pipeline_returns_analysis_result(tmp_path, synthetic_wav):
     assert "drums" in result.onsets
     assert "lufs" in result.curves
     assert "rms_drums" in result.curves
+    assert "rms_fast" in result.curves
+
+
+def test_pipeline_to_bundle_1_3_end_to_end(tmp_path, synthetic_wav):
+    """Real pipeline output -> bundle: all four controls on one grid, and
+    beats carry the pattern fields stamped by detect_patterns."""
+    from musicue.compile.bundle import build_bundle
+    from musicue.compile.compiler import compile_analysis
+
+    cfg = _make_cfg(tmp_path)
+    with patch("musicue.analysis.pipeline.separate", side_effect=_fake_separate):
+        result = run_analysis(synthetic_wav, cfg)
+    bundle = build_bundle(result, compile_analysis(result, grammar="concert_visuals"))
+
+    assert bundle.schema_version == "1.3"
+    assert set(bundle.controls) == {"energy_fast", "brightness", "build", "onset_density"}
+    lengths = {len(c.values) for c in bundle.controls.values()}
+    hops = {c.hop_sec for c in bundle.controls.values()}
+    assert hops == {result.analysis_config.curve_hop_sec}
+    assert lengths == {int(result.source.duration_sec / hops.pop() + 1e-6)}
+    assert result.beats, "fallback beat tracker should find beats"
+    assert any(b.phrase_id is not None for b in bundle.beats)
+    positions = [b.phrase_position for b in bundle.beats if b.phrase_position is not None]
+    assert min(positions) == 0
 
 
 def test_pipeline_source_sha256_matches_file(tmp_path, synthetic_wav):

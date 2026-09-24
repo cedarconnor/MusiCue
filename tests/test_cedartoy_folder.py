@@ -84,7 +84,7 @@ def test_bundle_decoded_audio_sha_matches_written_wav(tmp_path):
 
     expected_sha = hashlib.sha256((out_dir / "song.wav").read_bytes()).hexdigest()
     bundle_doc = json.loads((out_dir / "song.musicue.json").read_text("utf-8"))
-    assert bundle_doc["schema_version"] == "1.2"
+    assert bundle_doc["schema_version"] == "1.3"
     assert bundle_doc["decoded_audio_sha256"] == expected_sha
 
 
