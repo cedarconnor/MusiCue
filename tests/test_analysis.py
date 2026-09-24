@@ -1,7 +1,9 @@
 import shutil as _shutil
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
+import soundfile as sf
 
 from musicue.analysis.curves import (
     compute_lufs_curve,
@@ -163,6 +165,30 @@ def test_pipeline_returns_analysis_result(tmp_path, synthetic_wav):
     assert "drums" in result.onsets
     assert "lufs" in result.curves
     assert "rms_drums" in result.curves
+    assert "rms_fast" in result.curves
+
+
+def test_pipeline_to_bundle_1_3_end_to_end(tmp_path, synthetic_wav):
+    """Real pipeline output -> bundle: all four controls on one grid, and
+    beats carry the pattern fields stamped by detect_patterns."""
+    from musicue.compile.bundle import build_bundle
+    from musicue.compile.compiler import compile_analysis
+
+    cfg = _make_cfg(tmp_path)
+    with patch("musicue.analysis.pipeline.separate", side_effect=_fake_separate):
+        result = run_analysis(synthetic_wav, cfg)
+    bundle = build_bundle(result, compile_analysis(result, grammar="concert_visuals"))
+
+    assert bundle.schema_version == "1.3"
+    assert set(bundle.controls) == {"energy_fast", "brightness", "build", "onset_density"}
+    lengths = {len(c.values) for c in bundle.controls.values()}
+    hops = {c.hop_sec for c in bundle.controls.values()}
+    assert hops == {result.analysis_config.curve_hop_sec}
+    assert lengths == {int(result.source.duration_sec / hops.pop() + 1e-6)}
+    assert result.beats, "fallback beat tracker should find beats"
+    assert any(b.phrase_id is not None for b in bundle.beats)
+    positions = [b.phrase_position for b in bundle.beats if b.phrase_position is not None]
+    assert min(positions) == 0
 
 
 def test_pipeline_source_sha256_matches_file(tmp_path, synthetic_wav):
@@ -259,3 +285,66 @@ def test_full_pipeline_wav_to_csv(tmp_path, synthetic_wav):
         rows = list(csv_mod.DictReader(f))
     assert len(rows) > 0
     assert "time_sec" in rows[0]
+
+
+def test_onset_strength_nonzero_and_tracks_loudness(tmp_path):
+    """Strength is read at the envelope peak (not the backtracked minimum),
+    so it is > 0 and louder hits score higher."""
+    sr = 22050
+    rng = np.random.default_rng(0)
+    # Steady bed so the hits' flux is measured against real signal, not
+    # digital silence (where any hit is an "infinite" dB rise).
+    y = (0.02 * rng.standard_normal(int(sr * 6.0))).astype(np.float32)
+    burst_len = int(0.05 * sr)
+    decay = np.exp(-np.arange(burst_len) / (0.01 * sr)).astype(np.float32)
+    amps = {1.0: 0.05, 2.5: 0.2, 4.0: 0.8}
+    for t0, amp in amps.items():
+        i = int(t0 * sr)
+        y[i:i + burst_len] += amp * decay * rng.standard_normal(burst_len).astype(np.float32)
+    p = tmp_path / "hits.wav"
+    sf.write(str(p), y, sr)
+
+    onsets = detect_onsets(p, sr=sr)
+    by_hit = {}
+    for t0 in amps:
+        near = [o for o in onsets if abs(o["t"] - t0) < 0.1]
+        assert near, f"no onset near {t0}s"
+        by_hit[t0] = max(o["strength"] for o in near)
+    assert all(s > 0.0 for s in by_hit.values()), by_hit
+    assert by_hit[1.0] < by_hit[2.5] < by_hit[4.0], by_hit
+    assert all(0.0 <= o["strength"] <= 1.0 for o in onsets)
+
+
+def test_lufs_curve_is_centered_on_step(tmp_path):
+    """A loudness step at 12 s must cross its (power) midpoint at ~12 s, not
+    0.2 s early as with a look-ahead window stamped at its start."""
+    sr = 44100
+    t = np.arange(int(sr * 24.0)) / sr
+    amp = np.where(t < 12.0, 0.05, 0.5)
+    y = (amp * np.sin(2 * np.pi * 1000.0 * t)).astype(np.float32)
+    p = tmp_path / "step.wav"
+    sf.write(str(p), y, sr)
+
+    curve = compute_lufs_curve(p, hop_sec=0.01)
+    hop = curve["hop_sec"]
+    power = 10.0 ** (np.asarray(curve["values"]) / 10.0)
+    lo = float(np.median(power[: int(10.0 / hop)]))
+    hi = float(np.median(power[int(14.0 / hop):]))
+    mid = (lo + hi) / 2.0
+    cross_idx = int(np.argmax(power > mid))
+    assert abs(cross_idx * hop - 12.0) <= 0.05, cross_idx * hop
+
+
+def test_rms_curve_fixed_window_is_smoother_and_aligned(synthetic_wav):
+    default = compute_rms_curve(synthetic_wav, hop_sec=0.04)
+    fast = compute_rms_curve(synthetic_wav, hop_sec=0.04, frame_sec=0.1)
+    assert fast["hop_sec"] == default["hop_sec"]
+    assert len(fast["values"]) == len(default["values"])  # same centered grid
+    import numpy as np
+
+    d = np.abs(np.diff(default["values"])).sum()
+    f = np.abs(np.diff(fast["values"])).sum()
+    assert f < d  # longer window -> less frame-to-frame flicker
+    # The burst at 2.5 s is still visible within +-1 frame of its onset.
+    i = round(2.5 / fast["hop_sec"])
+    assert max(fast["values"][i - 1:i + 2]) > 1.05 * fast["values"][i - 10]

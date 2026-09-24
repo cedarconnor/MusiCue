@@ -1,6 +1,8 @@
 """Tests for beat-pattern detection (phrase blocks, fills, syncopation)."""
 from __future__ import annotations
 
+import pytest
+
 from musicue.analysis.patterns import (
     detect_patterns,
     populate_beat_pattern_fields,
@@ -14,9 +16,17 @@ from musicue.schemas import (
     SourceInfo,
 )
 
+# Real beat backends (allin1, librosa fallback) number bars from 1.
+FIRST_BAR = 1
 
-def _bars_of_4_beats(n_bars: int, bar_dur: float = 2.0) -> list[BeatEvent]:
-    """A simple 4/4 beat track: 4 beats per bar, downbeat on beat 1."""
+
+def _bars_of_4_beats(
+    n_bars: int, bar_dur: float = 2.0, first_bar: int = FIRST_BAR
+) -> list[BeatEvent]:
+    """A simple 4/4 beat track: 4 beats per bar, downbeat on beat 1.
+
+    Bars are numbered from ``first_bar`` (1 like the real backends by default).
+    """
     beats: list[BeatEvent] = []
     for bar in range(n_bars):
         for b_in_bar in range(4):
@@ -25,7 +35,7 @@ def _bars_of_4_beats(n_bars: int, bar_dur: float = 2.0) -> list[BeatEvent]:
                 BeatEvent(
                     t=t,
                     beat_in_bar=b_in_bar + 1,
-                    bar=bar,
+                    bar=first_bar + bar,
                     is_downbeat=(b_in_bar == 0),
                     confidence=1.0,
                 )
@@ -118,7 +128,7 @@ def test_fill_detection_finds_density_spike_at_phrase_end():
     patterns = detect_patterns(analysis)
     fill_bars = {f.bar for f in patterns.fills}
     # At least one of the dense bars should be flagged.
-    assert fill_bars & {3, 7}
+    assert fill_bars & {FIRST_BAR + 3, FIRST_BAR + 7}
 
 
 def test_fill_density_zscore_positive():
@@ -196,8 +206,8 @@ def test_populate_beat_pattern_fields_sets_is_fill():
     analysis = _make_analysis(beats=beats, onsets=onsets)
 
     out = populate_beat_pattern_fields(analysis)
-    fill_bar3 = [b.is_fill for b in out.beats if b.bar == 3]
-    other_bars = [b.is_fill for b in out.beats if b.bar != 3]
+    fill_bar3 = [b.is_fill for b in out.beats if b.bar == FIRST_BAR + 3]
+    other_bars = [b.is_fill for b in out.beats if b.bar != FIRST_BAR + 3]
     assert any(fill_bar3)
     assert not any(other_bars)
 
@@ -208,3 +218,49 @@ def test_populate_beat_pattern_fields_backwards_compat_when_no_data():
     out = populate_beat_pattern_fields(analysis)
     assert out.patterns is not None
     assert out.patterns.bar_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Bar-number origin (backends number bars from 1; don't assume 0 or 1)
+# ---------------------------------------------------------------------------
+
+
+def _fill_every_4th_bar(n_bars: int, first_bar: int) -> AnalysisResult:
+    beats = _bars_of_4_beats(n_bars, first_bar=first_bar)
+    onsets = []
+    for i in range(n_bars):
+        bar_t = i * 2.0
+        if (i + 1) % 4 == 0:  # last bar of each 4-bar phrase
+            for k in range(10):
+                onsets.append(OnsetEvent(t=bar_t + 0.05 + k * 0.18, strength=0.8))
+        else:
+            onsets.append(OnsetEvent(t=bar_t, strength=1.0))
+    return _make_analysis(beats=beats, onsets=onsets)
+
+
+@pytest.mark.parametrize("first_bar", [0, 1, 5])
+def test_patterns_follow_actual_bar_origin(first_bar):
+    analysis = _fill_every_4th_bar(8, first_bar)
+    patterns = detect_patterns(analysis)
+
+    # No phantom bar before the first real bar.
+    assert patterns.bar_count == 8
+    assert len(patterns.syncopation_per_bar) == 8
+    # Phrase blocks start on the first real bar and tile in 4s.
+    starts = sorted(p.bar_start for p in patterns.phrases)
+    assert starts[0] == first_bar
+    assert all(p.length == 4 for p in patterns.phrases)
+    assert starts == [first_bar, first_bar + 4]
+    # Fills are the last bar of each phrase, reported as real bar numbers.
+    assert {f.bar for f in patterns.fills} == {first_bar + 3, first_bar + 7}
+
+
+def test_populate_marks_phrase_positions_from_bar_one():
+    analysis = _fill_every_4th_bar(8, first_bar=1)
+    out = populate_beat_pattern_fields(analysis)
+    pos = {b.bar: b.phrase_position for b in out.beats}
+    assert pos[1] == 1 and pos[4] == 4 and pos[5] == 1 and pos[8] == 4
+    fills = {b.bar for b in out.beats if b.is_fill}
+    assert fills == {4, 8}
+    # Syncopation is populated for every real bar, including the last.
+    assert all(b.syncopation is not None for b in out.beats)

@@ -6,6 +6,7 @@ path the CLI uses; see musicue/compile/cedartoy_folder.py.
 """
 from __future__ import annotations
 
+import os
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
@@ -33,8 +34,71 @@ _GRAMMARS = (
 )
 
 
+# Never create export folders inside these (or at a filesystem root).
+_POSIX_SYSTEM_DIRS = (
+    "/bin", "/boot", "/dev", "/etc", "/lib", "/lib32", "/lib64", "/proc",
+    "/sbin", "/sys", "/usr", "/var/lib", "/var/log", "/System", "/Library",
+)
+_WINDOWS_SYSTEM_ENV = ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramData")
+
+
+def _system_dirs() -> list[Path]:
+    dirs = [Path(d) for d in _POSIX_SYSTEM_DIRS]
+    for var in _WINDOWS_SYSTEM_ENV:
+        val = os.environ.get(var)
+        if val:
+            dirs.append(Path(val))
+    return dirs
+
+
+def _is_within(child: Path, parent: Path) -> bool:
+    c = os.path.normcase(str(child))
+    p = os.path.normcase(str(parent)).rstrip("\\/")
+    return c == p or c.startswith(p + os.sep)
+
+
+def _resolve_output_folder(raw: str) -> Path:
+    """Validate and resolve the requested export folder.
+
+    Absolute paths are accepted unless they point at a filesystem root or
+    into a system directory. Relative paths (the UI's ``exports/<song>``
+    default) are resolved against the server's working directory and must
+    stay inside it (no ``..`` escapes).
+    """
+    if not raw or not raw.strip() or "\x00" in raw:
+        raise HTTPException(status_code=400, detail="output_folder is empty")
+    requested = Path(raw.strip()).expanduser()
+    if requested.is_absolute():
+        out_dir = requested.resolve()
+    else:
+        base = Path.cwd().resolve()
+        out_dir = (base / requested).resolve()
+        if not _is_within(out_dir, base) or out_dir == base:
+            raise HTTPException(
+                status_code=400,
+                detail="relative output_folder must stay inside the server's "
+                       "working directory; use an absolute path instead",
+            )
+    if out_dir.parent == out_dir:
+        raise HTTPException(
+            status_code=400,
+            detail=f"refusing to write to a filesystem root: {out_dir}",
+        )
+    for sys_dir in _system_dirs():
+        if _is_within(out_dir, sys_dir):
+            raise HTTPException(
+                status_code=400,
+                detail=f"refusing to write into a system directory: {out_dir}",
+            )
+    return out_dir
+
+
 class SendToCedarToyRequest(BaseModel):
-    output_folder: str = Field(..., description="Server-local folder path to create.")
+    output_folder: str = Field(
+        ...,
+        description="Server-local folder path to create. Absolute, or relative "
+                    "to the server's working directory.",
+    )
     grammar: str = Field("concert_visuals")
     include_stems: bool = False
     force_analyze: bool = Field(
@@ -69,6 +133,8 @@ def send_to_cedartoy(
     if song is None:
         raise HTTPException(status_code=404, detail="song not found")
     analysis_path = storage.analysis_dir(song_id, analysis_id) / "analysis.json"
+    out_dir = _resolve_output_folder(body.output_folder)
+    stems_src = storage.analysis_dir(song_id, analysis_id) / "stems"
 
     if body.force_analyze:
         # Re-run analysis synchronously. Blocks the request. Same pattern as
@@ -77,15 +143,22 @@ def send_to_cedartoy(
         from musicue.analysis.pipeline import run_analysis
         from musicue.config import MusiCueConfig
         cfg = MusiCueConfig()
-        result = run_analysis(song.source_path, cfg)
+        # Same layout as the analyze route: run dirs live next to this
+        # song's other analyses, not in a cwd-relative ./runs.
+        cfg.runs_dir = storage.analyses_dir(song_id)
+        result = run_analysis(song.source_path, cfg, force=True)
         analysis_path.parent.mkdir(parents=True, exist_ok=True)
         analysis_path.write_text(
             result.model_dump_json(indent=2), encoding="utf-8"
         )
+        # The forced run writes stems under its own cache-keyed run dir,
+        # which can differ from analysis_id (e.g. after an algo-version
+        # bump). Export the stems that belong to the refreshed analysis.
+        if result.stems:
+            stems_src = Path(next(iter(result.stems.values()))).parent
     elif not analysis_path.exists():
         raise HTTPException(status_code=404, detail="analysis not found")
 
-    out_dir = Path(body.output_folder)
     if out_dir.exists():
         raise HTTPException(
             status_code=409,
@@ -108,7 +181,6 @@ def send_to_cedartoy(
             status_code=500, detail=f"compile failed: {e}"
         ) from e
 
-    stems_src = storage.analysis_dir(song_id, analysis_id) / "stems"
     try:
         mc_ver = _pkg_version("musicue")
     except Exception:

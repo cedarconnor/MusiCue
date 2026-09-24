@@ -84,7 +84,7 @@ tracks:
   - name: section_ramp
     type: ramp
     source: section_transitions
-    filter: "ramp_evidence.spectral_flux_rise > 0.4"
+    filter: "ramp_evidence.spectral_flux_rise > 0.6"
 
   - name: energy
     type: continuous

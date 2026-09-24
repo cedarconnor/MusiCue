@@ -14,9 +14,11 @@ from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 from musicue.compile.compiler import compile_analysis
 from musicue.schemas import AnalysisResult
+from musicue.ui.routes._validators import validate_analysis_id, validate_song_id
 
 router = APIRouter(prefix="/api/songs/{song_id}", tags=["export"])
 
@@ -74,6 +76,9 @@ def export_cuesheet(
     body: ExportRequest,
     request: Request,
 ) -> FileResponse:
+    # Validate before these ids are used to build storage paths.
+    song_id = validate_song_id(song_id)
+    analysis_id = validate_analysis_id(analysis_id)
     if body.format not in _EXPORTERS:
         raise HTTPException(
             status_code=400,
@@ -135,9 +140,9 @@ def export_cuesheet(
     download_name = f"{fname_stem}{suffix}"
 
     # NamedTemporaryFile with delete=False so we can return its path; FastAPI's
-    # FileResponse streams it. Cleanup happens via OS temp dir reaping; keeping
-    # the file around for a few minutes is fine and avoids a tricky background
-    # task race where the response hasn't finished sending yet.
+    # FileResponse streams it and the BackgroundTask below deletes it. Starlette
+    # runs background tasks only after the response body has been fully sent,
+    # so the file can't disappear mid-stream.
     tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
     tmp.close()
     try:
@@ -164,6 +169,7 @@ def export_cuesheet(
     return FileResponse(
         path=tmp.name,
         media_type="application/octet-stream",
+        background=BackgroundTask(Path(tmp.name).unlink, missing_ok=True),
         headers={
             "Content-Disposition": (
                 f'attachment; filename="{legacy_name}"; '

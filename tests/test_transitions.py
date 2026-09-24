@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from musicue.analysis.transitions import derive_transitions
@@ -66,3 +67,85 @@ def test_derive_transitions_ramp_evidence_keys():
 
 def test_no_sections_returns_empty():
     assert derive_transitions([], _make_flux(), _make_lufs()) == []
+
+
+def _flux_steps(levels: list[tuple[float, float]], hop_sec=0.04, n=2500):
+    """Flux curve that sits at ``level`` from each ``(t_from, level)`` on."""
+    rng = np.random.default_rng(0)
+    values = np.zeros(n)
+    for t_from, level in levels:
+        values[int(t_from / hop_sec):] = level
+    values += 0.02 * rng.standard_normal(n)
+    return {"hop_sec": hop_sec, "values": values.tolist()}
+
+
+def test_spectral_flux_rise_is_informative():
+    # intro (quiet) -> verse (busier) -> chorus (same as verse)
+    flux = _flux_steps([(0.0, 0.2), (17.2, 1.0)])
+    transitions = derive_transitions(_make_sections(), flux, _make_lufs())
+    rise_into_verse = transitions[0]["ramp_evidence"]["spectral_flux_rise"]
+    rise_into_chorus = transitions[1]["ramp_evidence"]["spectral_flux_rise"]
+    assert rise_into_verse > 0.8
+    assert rise_into_chorus == pytest.approx(0.5, abs=0.1)
+
+
+def test_spectral_flux_rise_below_half_for_drop():
+    flux = _flux_steps([(0.0, 1.0), (51.6, 0.2)])
+    transitions = derive_transitions(_make_sections(), flux, _make_lufs())
+    assert transitions[1]["ramp_evidence"]["spectral_flux_rise"] < 0.2
+    for tr in transitions:
+        assert 0.0 <= tr["ramp_evidence"]["spectral_flux_rise"] <= 1.0
+
+
+def test_section_ramp_filters_follow_new_scale():
+    """Grammar thresholds sit above 0.5 (= no change) after the rescale."""
+    from musicue.compile.grammar import load_grammar
+    from musicue.compile.scoring import evaluate_filter
+
+    flat = {"ramp_evidence": {"spectral_flux_rise": 0.5}}
+    rise = {"ramp_evidence": {"spectral_flux_rise": 0.9}}
+    for name in ("concert_visuals", "camera_edit"):
+        grammar = load_grammar(name)
+        (track,) = [t for t in grammar.tracks if t.name == "section_ramp"]
+        assert evaluate_filter(track.filter, rise) is True
+        assert evaluate_filter(track.filter, flat) is False
+
+
+# ---- Build-window ramps ----
+
+
+def _lufs_steps(levels: list[tuple[float, float]], hop_sec=0.04, n=2500):
+    values = np.full(n, -20.0)
+    for t_from, level in levels:
+        values[int(t_from / hop_sec):] = level
+    return {"hop_sec": hop_sec, "values": values.tolist()}
+
+
+def _grid(bar=2.0, until=100.0):
+    return [i * bar for i in range(int(until / bar) + 1)]
+
+
+def test_build_ramp_spans_eight_bars_on_the_beat_grid():
+    sections = [
+        {"start": 0.0, "end": 40.0, "label": "verse"},
+        {"start": 40.0, "end": 80.0, "label": "chorus"},
+    ]
+    lufs = _lufs_steps([(0.0, -24.0), (40.0, -10.0)])
+    (tr,) = derive_transitions(sections, _make_flux(), lufs, downbeats=_grid(), bpm=120.0)
+    assert tr["ramp"]["t_start"] == pytest.approx(24.0)
+    assert tr["ramp"]["t_end"] == pytest.approx(40.0)
+    assert tr["ramp"]["shape"] == "ease_in"
+
+
+def test_non_build_and_gridless_ramps_keep_short_default():
+    sections = [
+        {"start": 0.0, "end": 40.0, "label": "chorus"},
+        {"start": 40.0, "end": 80.0, "label": "verse"},
+    ]
+    drop = _lufs_steps([(0.0, -10.0), (40.0, -24.0)])
+    (tr,) = derive_transitions(sections, _make_flux(), drop, downbeats=_grid(), bpm=120.0)
+    assert tr["ramp"]["t_start"] == pytest.approx(40.0 - 1.2)
+
+    rise = _lufs_steps([(0.0, -24.0), (40.0, -10.0)])
+    (tr,) = derive_transitions(sections, _make_flux(), rise)  # no grid supplied
+    assert tr["ramp"]["t_start"] == pytest.approx(40.0 - 1.2)

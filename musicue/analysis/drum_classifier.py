@@ -5,60 +5,88 @@ Two execution paths:
 1. **CNN (preferred when a pretrained checkpoint is available)**.
    `models/drum_cnn.pt` is loaded and inference is run per onset.
 
-2. **Heuristic (default, no training required)**. A pure-DSP spectral
-   classifier that buckets each onset's energy into low/mid/high bands
-   (kick / snare / hat). Imperfect but instantly available — no model
-   download, no training step. Used automatically when no checkpoint
-   is present.
+2. **Band-split heuristic (default, no training required)**. Instead of
+   detecting one onset stream and then giving each onset a single class,
+   :func:`detect_drum_onsets_by_band` computes a separate spectral-flux
+   onset envelope for each drum-relevant band (kick / snare / hat) and
+   peak-picks each band independently. A kick and a hat that land on the
+   same beat therefore produce two events, and a decaying kick tail (which
+   has *negative* flux) no longer swallows the off-beat hats. No model
+   download, no training step. Used automatically when no checkpoint is
+   present.
 
-Inference contract:
+   Known limitation: a band's envelope is normalized against its own
+   loudest peaks, so on a kit with no snare at all the kick's beater click
+   spilling into the mid band can surface as low-confidence "snare" events.
+
+``torch`` is imported lazily: only the CNN path needs it.
+
+Inference contract (CNN):
     Input:  audio window (np.ndarray, mono, float32) at the given sample rate.
     Output: (drum_class: str in DRUM_CLASSES, confidence: float in [0, 1]).
 """
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import librosa
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 DRUM_CLASSES = ["kick", "snare", "hat", "tom", "cymbal", "other"]
 WINDOW_MS = 50
 N_MELS = 64
 HOP_LENGTH = 512
 
-
-class _ConvBlock(nn.Module):
-    def __init__(self, in_ch: int, out_ch: int) -> None:
-        super().__init__()
-        self.conv = nn.Conv2d(in_ch, out_ch, 3, padding=1)
-        self.bn = nn.BatchNorm2d(out_ch)
-        self.pool = nn.MaxPool2d(2)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.pool(F.relu(self.bn(self.conv(x))))
+HEURISTIC_VERSION = "heuristic-bandsplit-v1"
 
 
-class DrumClassifierCNN(nn.Module):
-    def __init__(self, n_classes: int = 6) -> None:
-        super().__init__()
-        self.blocks = nn.Sequential(
-            _ConvBlock(1, 32),
-            _ConvBlock(32, 64),
-            _ConvBlock(64, 128),
-            _ConvBlock(128, 256),
-        )
-        self.pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.head = nn.Linear(256, n_classes)
+@lru_cache(maxsize=1)
+def _cnn_classes() -> tuple[type, type]:
+    """Define the torch model classes on first use (keeps torch import lazy)."""
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.blocks(x)
-        x = self.pool(x).flatten(1)
-        return self.head(x)
+    class _ConvBlock(nn.Module):
+        def __init__(self, in_ch: int, out_ch: int) -> None:
+            super().__init__()
+            self.conv = nn.Conv2d(in_ch, out_ch, 3, padding=1)
+            self.bn = nn.BatchNorm2d(out_ch)
+            self.pool = nn.MaxPool2d(2)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return self.pool(F.relu(self.bn(self.conv(x))))
+
+    class DrumClassifierCNN(nn.Module):
+        def __init__(self, n_classes: int = 6) -> None:
+            super().__init__()
+            self.blocks = nn.Sequential(
+                _ConvBlock(1, 32),
+                _ConvBlock(32, 64),
+                _ConvBlock(64, 128),
+                _ConvBlock(128, 256),
+            )
+            self.pool = nn.AdaptiveAvgPool2d((1, 1))
+            self.head = nn.Linear(256, n_classes)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            x = self.blocks(x)
+            x = self.pool(x).flatten(1)
+            return self.head(x)
+
+    return _ConvBlock, DrumClassifierCNN
+
+
+def __getattr__(name: str) -> Any:
+    # PEP 562: resolve the torch-backed classes only when someone asks.
+    if name == "DrumClassifierCNN":
+        return _cnn_classes()[1]
+    if name == "_ConvBlock":
+        return _cnn_classes()[0]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _onset_to_mel(audio_window: np.ndarray, sr: int = 44100) -> np.ndarray:
@@ -84,10 +112,13 @@ def _extract_window(
 
 def classify_onset(
     audio_window: np.ndarray,
-    model: DrumClassifierCNN,
+    model: Any,
     sr: int = 44100,
     device: str = "cpu",
 ) -> tuple[str, float]:
+    import torch
+    import torch.nn.functional as F
+
     mel = _onset_to_mel(audio_window, sr=sr)
     target_frames = 44
     if mel.shape[1] < target_frames:
@@ -102,7 +133,7 @@ def classify_onset(
     return DRUM_CLASSES[idx], float(probs[idx])
 
 
-# ---- Heuristic (no-model) classifier ----
+# ---- Heuristic (no-model) paths ----
 
 # Frequency bands used by the heuristic. Tuned for a typical drum kit:
 #   kick:  fundamental + first harmonic mostly under ~180 Hz
@@ -159,11 +190,104 @@ def classify_heuristic(
     return onsets
 
 
+# Bands for the band-split onset detector. Slightly narrower low band than
+# the per-onset heuristic so a kick's upper harmonics don't dominate.
+_ONSET_BANDS: dict[str, tuple[float, float]] = {
+    "kick": (20.0, 150.0),
+    "snare": (150.0, 2500.0),
+    "hat": (5000.0, 16000.0),
+}
+_BAND_N_FFT = 2048
+# log1p(gamma * power / band_max): dynamic-range compression before flux.
+_BAND_LOG_GAMMA = 1000.0
+# Peak height (relative to the band's 99th-percentile peak) needed to emit.
+_BAND_MIN_STRENGTH = 0.4
+
+
+def detect_drum_onsets_by_band(
+    audio: np.ndarray,
+    sr: int = 44100,
+    hop_length: int = HOP_LENGTH,
+) -> list[dict]:
+    """Band-split drum onset detection on a (mono) drums stem.
+
+    For each of kick / snare / hat, compute a spectral-flux onset envelope
+    restricted to that band's STFT bins and peak-pick it independently.
+    Emits one OnsetEvent-shaped dict per (band, onset), sorted by time.
+
+    * ``strength``: peak height / band's 99th-percentile peak, clipped [0, 1].
+    * ``drum_class_conf``: this band's share of the (normalized) onset
+      salience summed across all bands at that frame — ≈1.0 for an isolated
+      hit, ≈0.33–0.5 when several bands fire together.
+    """
+    y = np.asarray(audio, dtype=np.float32)
+    if y.ndim > 1:
+        y = y.mean(axis=1)
+    if y.size < _BAND_N_FFT or not np.any(y):
+        return []
+
+    power = np.abs(librosa.stft(y, n_fft=_BAND_N_FFT, hop_length=hop_length)) ** 2
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=_BAND_N_FFT)
+    wait = max(1, int(0.05 * sr / hop_length))
+
+    norm_envs: dict[str, np.ndarray] = {}
+    for name, (lo, hi) in _ONSET_BANDS.items():
+        mask = (freqs >= lo) & (freqs < min(hi, sr / 2.0))
+        band = power[mask]
+        band_max = float(band.max()) if band.size else 0.0
+        if band_max <= 0.0:
+            continue
+        compressed = np.log1p(_BAND_LOG_GAMMA * band / band_max)
+        # center=False: the STFT above is already centered, so librosa's
+        # extra centering pad would push peaks ~2 frames late.
+        env = librosa.onset.onset_strength(
+            S=compressed, sr=sr, hop_length=hop_length, center=False
+        )
+        ref = float(np.percentile(env, 99)) if env.size else 0.0
+        if ref <= 0.0:
+            continue
+        norm_envs[name] = env / ref
+
+    if not norm_envs:
+        return []
+    n_frames = min(len(e) for e in norm_envs.values())
+    stacked = np.vstack([e[:n_frames] for e in norm_envs.values()])
+    # Salience at each frame, max-pooled over ±1 frame so near-coincident
+    # hits in different bands share the same denominator.
+    pooled = np.maximum.reduce([
+        np.roll(stacked, -1, axis=1), stacked, np.roll(stacked, 1, axis=1)
+    ])
+    total = pooled.sum(axis=0)
+
+    events: list[dict] = []
+    for row, (name, env) in enumerate(norm_envs.items()):
+        env = env[:n_frames]
+        peaks = librosa.util.peak_pick(
+            env, pre_max=3, post_max=3, pre_avg=3, post_avg=5,
+            delta=0.1, wait=wait,
+        )
+        peaks = peaks[env[peaks] >= _BAND_MIN_STRENGTH]
+        times = librosa.frames_to_time(peaks, sr=sr, hop_length=hop_length)
+        for f, t in zip(peaks, times):
+            denom = float(total[f])
+            share = float(pooled[row, f]) / denom if denom > 0 else 0.0
+            events.append({
+                "t": float(t),
+                "strength": float(np.clip(env[f], 0.0, 1.0)),
+                "timescale": "micro",
+                "drum_class": name,
+                "drum_class_conf": float(np.clip(share, 0.0, 1.0)),
+                "labels": [],
+            })
+    events.sort(key=lambda e: (e["t"], e["drum_class"]))
+    return events
+
+
 def classify_onsets_batch(
     onsets: list[dict],
     audio: np.ndarray,
     sr: int = 44100,
-    model: DrumClassifierCNN | None = None,
+    model: Any | None = None,
     model_path: Path | None = None,
     device: str | None = None,
 ) -> list[dict]:
@@ -174,15 +298,21 @@ def classify_onsets_batch(
       2. CNN loaded from `model_path` if it exists.
       3. Heuristic spectral-band fallback (no training/download needed).
     """
+    if model is None and (model_path is None or not model_path.exists()):
+        # No checkpoint available — heuristic fallback so the cuesheet
+        # still gets kick/snare/hat lanes populated. (The pipeline prefers
+        # detect_drum_onsets_by_band in this case; this keeps the
+        # per-onset API working for callers that already have onsets.)
+        return classify_heuristic(onsets, audio, sr=sr)
+
+    import torch
+
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     if model is None:
-        if model_path is None or not model_path.exists():
-            # No checkpoint available — heuristic fallback so the cuesheet
-            # still gets kick/snare/hat lanes populated.
-            return classify_heuristic(onsets, audio, sr=sr)
+        assert model_path is not None
         state = torch.load(str(model_path), map_location=device, weights_only=True)
-        model = DrumClassifierCNN(n_classes=len(DRUM_CLASSES))
+        model = _cnn_classes()[1](n_classes=len(DRUM_CLASSES))
         model.load_state_dict(state)
     model = model.to(device)
     model.eval()
@@ -202,4 +332,4 @@ def drum_classifier_version(model_path: Path | None = None) -> str:
 
         h = hashlib.sha256(model_path.read_bytes()).hexdigest()[:8]
         return f"cnn-{h}"
-    return "heuristic"
+    return HEURISTIC_VERSION

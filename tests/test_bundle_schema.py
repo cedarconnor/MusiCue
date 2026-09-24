@@ -30,7 +30,7 @@ def test_minimal_bundle_roundtrip():
     cs = CueSheet(source_sha256="x" * 64, grammar="concert_visuals", duration_sec=10.0)
     b = MusiCueBundle(cuesheet=cs, **_minimal_bundle_kwargs())
 
-    assert b.schema_version == "1.1"
+    assert b.schema_version == "1.3"
     assert b.stems_energy == {}
     roundtrip = MusiCueBundle.model_validate_json(b.model_dump_json())
     assert roundtrip.duration_sec == 10.0
@@ -66,7 +66,7 @@ def test_bundle_carries_decoded_audio_sha256_optional():
         **_minimal_bundle_kwargs(),
     )
     assert b.decoded_audio_sha256 == "b" * 64
-    assert b.schema_version == "1.1"
+    assert b.schema_version == "1.3"
 
 
 def test_bundle_legacy_schema_version_is_readable():

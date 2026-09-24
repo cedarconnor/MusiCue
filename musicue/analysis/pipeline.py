@@ -35,7 +35,11 @@ from musicue.analysis.curves import (
     compute_spectral_flux_curve,
     compute_stereo_width_pan,
 )
-from musicue.analysis.drum_classifier import classify_onsets_batch, drum_classifier_version
+from musicue.analysis.drum_classifier import (
+    classify_onsets_batch,
+    detect_drum_onsets_by_band,
+    drum_classifier_version,
+)
 from musicue.analysis.onsets import detect_onsets
 from musicue.analysis.phrases import group_into_phrases
 from musicue.analysis.separation import demucs_version, separate
@@ -60,14 +64,26 @@ from musicue.schemas import (
 
 log = logging.getLogger(__name__)
 
+# Bump whenever an analysis algorithm changes its output (onset strength,
+# drum detection, curve windows, transition evidence, phrase energy, bar
+# numbering, ...). It is part of the cache key, so stale cached analyses
+# are recomputed instead of silently served.
+# "3": adds the mix ``rms_fast`` curve (100 ms window) and build-window
+# section-transition ramps.
+ANALYSIS_ALGO_VERSION = "3"
+
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _version_dict(cfg: MusiCueConfig) -> dict:
+    import musicue
+
     drum_model_path = Path("models/drum_cnn.pt")
     return {
+        "musicue_version": musicue.__version__,
+        "analysis_algo_version": ANALYSIS_ALGO_VERSION,
         "demucs_model": cfg.analysis.demucs_model,
         "demucs_version": demucs_version(),
         "allin1_version": allin1_version(),
@@ -116,13 +132,17 @@ def _write_run_artifacts(
             write_peaks(stem_path, run_dir / f"peaks.{stem_name}.json")
 
 
-def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
+def run_analysis(
+    audio_path: Path, cfg: MusiCueConfig, force: bool = False
+) -> AnalysisResult:
+    """Analyze ``audio_path``; ``force=True`` ignores (and then refreshes)
+    any cached analysis.json for this input + config."""
     audio_path = audio_path.resolve()
     version_dict = _version_dict(cfg)
     cache_key = build_audio_cache_key(audio_path, version_dict)
     cache = Cache(cfg.cache_dir)
 
-    cached = cache.get(cache_key, "analysis.json")
+    cached = None if force else cache.get(cache_key, "analysis.json")
     if cached is not None:
         result = AnalysisResult.model_validate_json(cached.read_text())
         # Always materialize the UI artifacts on cache hit. The cache only
@@ -167,11 +187,12 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
         onsets[stem_name] = [OnsetEvent.model_validate(o) for o in detect_onsets(stem_path)]
 
     # --- Drum classification (best-effort) ---------------------------------
-    # Always run when the drums stem is available: classify_onsets_batch
-    # picks the CNN when models/drum_cnn.pt exists, otherwise falls back
-    # to a pure-DSP heuristic. Skipping the CNN path entirely is fine —
-    # the heuristic still populates kick/snare/hat so concert_visuals can
-    # build per-class lanes.
+    # Always run when the drums stem is available. With a CNN checkpoint
+    # (models/drum_cnn.pt) each generic onset is classified by the CNN.
+    # Without one, band-split onset detection replaces the generic drums
+    # onset list: kick / snare / hat are peak-picked independently, so
+    # simultaneous hits in different bands each get their own event.
+    # ``onsets["drums"]`` is then the union of the per-band events.
     drum_model_path = Path("models/drum_cnn.pt")
     if "drums" in stems:
         try:
@@ -180,13 +201,17 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
             drum_audio, drum_sr = sf.read(str(stems["drums"]))
             if drum_audio.ndim > 1:
                 drum_audio = drum_audio.mean(axis=1)
-            drum_onset_dicts = [o.model_dump() for o in onsets.get("drums", [])]
-            classified = classify_onsets_batch(
-                drum_onset_dicts,
-                drum_audio.astype(np.float32),
-                sr=drum_sr,
-                model_path=drum_model_path,
-            )
+            drum_audio = drum_audio.astype(np.float32)
+            if drum_model_path.exists():
+                drum_onset_dicts = [o.model_dump() for o in onsets.get("drums", [])]
+                classified = classify_onsets_batch(
+                    drum_onset_dicts,
+                    drum_audio,
+                    sr=drum_sr,
+                    model_path=drum_model_path,
+                )
+            else:
+                classified = detect_drum_onsets_by_band(drum_audio, sr=drum_sr)
             onsets["drums"] = [OnsetEvent.model_validate(e) for e in classified]
         except Exception as exc:
             log.warning(
@@ -194,6 +219,12 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
                 type(exc).__name__,
                 exc,
             )
+
+    # --- Per-stem RMS (also feeds phrase energy curves) ---------------------
+    stem_rms: dict[str, dict] = {
+        stem_name: compute_rms_curve(stem_path, hop_sec=cfg.analysis.curve_hop_sec)
+        for stem_name, stem_path in stems.items()
+    }
 
     # --- Transcription + phrasing (vocals, other) --------------------------
     midi: dict[str, list[dict]] = {}
@@ -206,7 +237,9 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
             notes = transcribe_stem(stem_path)
             midi[stem_name] = notes
             gap = cfg.analysis.phrase_gap_sec.get(stem_name, 0.5)
-            raw_phrases = group_into_phrases(notes, gap_sec=gap)
+            raw_phrases = group_into_phrases(
+                notes, gap_sec=gap, rms_curve=stem_rms.get(stem_name)
+            )
             phrases[stem_name] = [PhraseEvent.model_validate(p) for p in raw_phrases]
         except Exception as exc:
             log.warning(
@@ -228,13 +261,23 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
             **compute_spectral_flux_curve(audio_path, hop_sec=cfg.analysis.curve_hop_sec)
         ),
     }
+    # Mix loudness with a short window, for the bundle's ``energy_fast``
+    # control. The per-stem ``rms_<stem>`` curves use librosa's default
+    # 2048-sample frame (~46 ms at 44.1 kHz, ~43 ms at 48 kHz) at a 40 ms
+    # hop -- barely overlapping, so they ripple with individual bass cycles
+    # and flicker frame to frame -- and there is no mix-level RMS at all
+    # (summing stems isn't the mix). LUFS uses the 400 ms BS.1770 block,
+    # too slow to follow hits. A fixed 100 ms centered window (2.5x hop
+    # overlap) follows each drum hit yet stays smooth, independent of the
+    # file's sample rate.
+    curves["rms_fast"] = TimedCurve(
+        **compute_rms_curve(audio_path, hop_sec=cfg.analysis.curve_hop_sec, frame_sec=0.1)
+    )
     stereo = compute_stereo_width_pan(audio_path, hop_sec=cfg.analysis.curve_hop_sec)
     curves["stereo_width"] = TimedCurve(**stereo["width"])
     curves["stereo_pan"] = TimedCurve(**stereo["pan"])
-    for stem_name, stem_path in stems.items():
-        curves[f"rms_{stem_name}"] = TimedCurve(
-            **compute_rms_curve(stem_path, hop_sec=cfg.analysis.curve_hop_sec)
-        )
+    for stem_name, rms in stem_rms.items():
+        curves[f"rms_{stem_name}"] = TimedCurve(**rms)
 
     # --- CLAP labeling (best-effort) ---------------------------------------
     if cfg.analysis.clap_top_k > 0:
@@ -273,7 +316,14 @@ def run_analysis(audio_path: Path, cfg: MusiCueConfig) -> AnalysisResult:
         "hop_sec": curves["lufs"].hop_sec,
         "values": curves["lufs"].values,
     }
-    raw_transitions = derive_transitions(sections_dicts, flux_dict, lufs_dict)
+    raw_transitions = derive_transitions(
+        sections_dicts,
+        flux_dict,
+        lufs_dict,
+        downbeats=[b.t for b in beats if b.is_downbeat],
+        bpm=tempo.bpm_global,
+        beats_per_bar=(tempo.time_signature[0] if tempo.time_signature else 4) or 4,
+    )
     section_transitions = [SectionTransition.model_validate(t) for t in raw_transitions]
 
     # --- MIDI typing -------------------------------------------------------

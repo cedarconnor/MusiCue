@@ -245,14 +245,19 @@ CedarToy synthesizes its `iChannel0` texture from MusiCue's events instead of ra
 
 **What the bundle contains** (the fields CedarToy actually consumes):
 
-- All beats and downbeats with bar numbers
+- All beats and downbeats with bar numbers, plus phrase fields per beat (`phrase_id`, `phrase_position` — 0-based bar within the phrase in the bundle, `phrase_length`, `is_fill`)
 - Per-section LUFS-ranked energy weights (0..1)
 - Per-drum-class onsets (kick, snare, hat, cymbal, tom) with timing and strength
 - Per-stem MIDI activity curves for melodic content (vocals, other stem)
-- A normalized global energy curve over the whole song
+- A normalized global energy curve over the whole song, and per-stem energy curves (`stems_energy`)
+- **`controls`** *(1.3)* — dense 0..1 curves on one shared hop (`{name: {hop_sec, values}}`):
+  - `energy_fast` — mix loudness from a 100 ms RMS window (dBFS), 5th/95th-percentile normalized over non-silent frames
+  - `brightness` — log-frequency spectral centroid, lightly smoothed (~120 ms), percentile normalized; silence → 0
+  - `build` — anticipation ramp `((t−t0)/(tb−t0))²` over up to 8 bars before each boundary into a clearly louder section, dropping to 0 at the boundary
+  - `onset_density` — kick/snare/hat onsets per beat, smoothed over one bar, normalized by the 95th percentile
 - The compiled cuesheet embedded verbatim, for tools that want grammar-shaped events
 
-The bundle is plain JSON, schema-versioned at `1.0`, typically 50–200 KB. Generate it once per song; multiple visual tools can consume the same file.
+The bundle is plain JSON, schema-versioned at `1.3` (additive over 1.2; contract in [`docs/specs/bundle-1.3-contract.md`](docs/specs/bundle-1.3-contract.md)), typically 50–200 KB. Generate it once per song; multiple visual tools can consume the same file.
 
 **Note on drum reactivity:** every detected drum onset is classified into kick / snare / hat. When `models/drum_cnn.pt` is present the CNN handles it; otherwise MusiCue uses a built-in spectral-band heuristic that compares the energy in the low / mid / high band of the 50 ms after the hit and picks the dominant band. The heuristic ships with the package — no training step or extra download is needed for the bundle's per-drum tracks to populate.
 

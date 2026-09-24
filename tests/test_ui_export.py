@@ -19,8 +19,9 @@ from musicue.schemas import (
 )
 from musicue.ui.server import create_app
 
-SONG_ID = "test-song-id"
-ANALYSIS_ID = "test-analysis-id"
+# Must match the route validators: sha256 hex / 12-char hex.
+SONG_ID = "5" * 64
+ANALYSIS_ID = "abcdef012345"
 
 
 def _plant_analysis(storage_root: Path) -> None:
@@ -325,3 +326,49 @@ def test_export_missing_analysis(tmp_path):
         json={"format": "csv", "grammar": "concert_visuals"},
     )
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Validation + temp-file cleanup
+# ---------------------------------------------------------------------------
+
+
+def test_export_rejects_invalid_ids(tmp_path):
+    _plant_analysis(tmp_path)
+    # 400 (validator) rather than 404 (missing dir): ids are rejected before
+    # any storage path is built from them.
+    client = TestClient(create_app(storage_root=tmp_path))
+    for song_id, analysis_id in (
+        ("not-a-sha", ANALYSIS_ID),
+        (SONG_ID, "test-analysis-id"),
+        ("A" * 64, ANALYSIS_ID),  # uppercase hex is not a valid id
+    ):
+        r = client.post(
+            f"/api/songs/{song_id}/analyses/{analysis_id}/export",
+            json={"format": "csv", "grammar": "concert_visuals"},
+        )
+        assert r.status_code == 400, (song_id, analysis_id, r.status_code)
+
+
+def test_export_deletes_temp_file_after_streaming(tmp_path, monkeypatch):
+    import tempfile
+
+    _plant_analysis(tmp_path)
+    created: list[str] = []
+    real_ntf = tempfile.NamedTemporaryFile
+
+    def _tracking_ntf(*args, **kwargs):
+        f = real_ntf(*args, **kwargs)
+        created.append(f.name)
+        return f
+
+    monkeypatch.setattr(tempfile, "NamedTemporaryFile", _tracking_ntf)
+    client = TestClient(create_app(storage_root=tmp_path))
+    r = client.post(
+        f"/api/songs/{SONG_ID}/analyses/{ANALYSIS_ID}/export",
+        json={"format": "csv", "grammar": "concert_visuals"},
+    )
+    assert r.status_code == 200
+    assert "time_sec" in r.content.decode("utf-8")
+    assert created, "route should have created a temp file"
+    assert not any(Path(p).exists() for p in created)

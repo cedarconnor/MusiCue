@@ -2,9 +2,24 @@
 from __future__ import annotations
 
 import logging
+import math
 
+import numpy as np
+
+from musicue.analysis.builds import (
+    LUFS_SILENCE,
+    build_curve,
+    build_windows,
+    energy_ranks,
+    section_lufs,
+)
+from musicue.analysis.patterns import populate_beat_pattern_fields
+from musicue.compile import controls as ctl
+from musicue.compile.normalize import percentile_normalize
 from musicue.schemas import (
     AnalysisResult,
+    BeatEvent,
+    ControlCurve,
     CueSheet,
     DrumOnset,
     MidiNoteBundle,
@@ -17,25 +32,20 @@ from musicue.schemas import (
 _logger = logging.getLogger(__name__)
 
 
-def _normalize(values: list[float]) -> list[float]:
-    if not values:
-        return []
-    lo, hi = min(values), max(values)
-    if hi - lo < 1e-9:
-        return [0.5] * len(values)
-    return [(v - lo) / (hi - lo) for v in values]
+# LUFS frames at or below this are treated as silence (the LUFS curve
+# floors digital silence at -70).
+_LUFS_SILENCE = LUFS_SILENCE
+# Per-stem RMS (dBFS) at or below this is treated as silence / bleed.
+_RMS_DB_SILENCE = -60.0
+_STEMS = ("drums", "bass", "vocals", "other")
 
 
 def _section_lufs(analysis: AnalysisResult, start: float, end: float) -> float | None:
+    """Mean LUFS over the section's non-silent frames (see builds.section_lufs)."""
     curve = analysis.curves.get("lufs")
-    if curve is None or curve.hop_sec <= 0 or not curve.values:
+    if curve is None:
         return None
-    i0 = max(0, int(start / curve.hop_sec))
-    i1 = min(len(curve.values), int(end / curve.hop_sec))
-    if i1 <= i0:
-        return None
-    window = curve.values[i0:i1]
-    return sum(window) / len(window)
+    return section_lufs(curve.values, curve.hop_sec, start, end)
 
 
 def _build_sections(analysis: AnalysisResult) -> list[SectionBundleEntry]:
@@ -44,7 +54,6 @@ def _build_sections(analysis: AnalysisResult) -> list[SectionBundleEntry]:
 
     transitions_by_t = {round(tr.t, 3): tr for tr in analysis.section_transitions}
 
-    raw_scores: list[float] = []
     cached: list[tuple[float | None, float | None]] = []  # (lufs, spectral_rise) per section
     for sec in analysis.sections:
         tr = transitions_by_t.get(round(sec.start, 3))
@@ -52,17 +61,11 @@ def _build_sections(analysis: AnalysisResult) -> list[SectionBundleEntry]:
         lufs = _section_lufs(analysis, sec.start, sec.end)
         cached.append((lufs, spectral_rise))
 
-        score = 0.0
-        components = 0
-        if spectral_rise is not None:
-            score += spectral_rise
-            components += 1
-        if lufs is not None:
-            score += lufs
-            components += 1
-        raw_scores.append(score / components if components else 0.0)
+    # energy_rank is loudness only: LUFS (dB) and spectral_flux_rise (a
+    # 0..1 boundary statistic) are different units and can't be averaged.
+    # Sections without a LUFS value get the neutral 0.5.
+    ranks = energy_ranks([lufs for lufs, _ in cached])
 
-    ranks = _normalize(raw_scores)
     out: list[SectionBundleEntry] = []
     for sec, (lufs, spectral_rise), rank in zip(analysis.sections, cached, ranks):
         out.append(SectionBundleEntry(
@@ -71,17 +74,49 @@ def _build_sections(analysis: AnalysisResult) -> list[SectionBundleEntry]:
             label=sec.label,
             confidence=sec.confidence,
             lufs=lufs,
-            energy_rank=rank if rank is not None else 0.5,
+            energy_rank=rank,
             spectral_flux_rise=spectral_rise,
         ))
     return out
 
 
 def _build_global_energy(analysis: AnalysisResult) -> StemEnergyCurve:
+    """Mix loudness in 0..1: 5th→0, 95th→1 percentile of non-silent LUFS.
+
+    Min-max over raw LUFS let the -70 silence floor define 0, squashing the
+    whole song into the top of the range.
+    """
     curve = analysis.curves.get("lufs")
     if curve is None or not curve.values:
         return StemEnergyCurve(hop_sec=0.04, values=[])
-    return StemEnergyCurve(hop_sec=curve.hop_sec, values=_normalize(curve.values))
+    return StemEnergyCurve(
+        hop_sec=curve.hop_sec,
+        values=percentile_normalize(
+            curve.values, 5.0, 95.0, floor=_LUFS_SILENCE, flat_value=0.5
+        ),
+    )
+
+
+def _build_stems_energy(analysis: AnalysisResult) -> dict[str, StemEnergyCurve]:
+    """Per-stem loudness in 0..1 from the ``rms_<stem>`` analysis curves.
+
+    RMS is converted to dBFS and percentile-normalized per stem (5th→0,
+    95th→1 of that stem's non-silent frames), so each stem uses its own
+    dynamic range: a quiet vocal still reaches 1.0 at its loudest.
+    """
+    out: dict[str, StemEnergyCurve] = {}
+    for stem in _STEMS:
+        curve = analysis.curves.get(f"rms_{stem}")
+        if curve is None or not curve.values:
+            continue
+        db = [20.0 * math.log10(max(float(v), 1e-10)) for v in curve.values]
+        out[stem] = StemEnergyCurve(
+            hop_sec=curve.hop_sec,
+            values=percentile_normalize(
+                db, 5.0, 95.0, floor=_RMS_DB_SILENCE, flat_value=0.5
+            ),
+        )
+    return out
 
 
 def _build_midi(analysis: AnalysisResult) -> dict[str, list[MidiNoteBundle]]:
@@ -102,6 +137,9 @@ def _build_midi_energy(
     n_bins = int(duration_sec / hop_sec)
     out: dict[str, StemEnergyCurve] = {}
     for stem, notes in analysis.midi.items():
+        # Per bin: the loudest sounding note (velocity weighted by how much of
+        # the bin it covers). Summing over polyphony saturated at 1.0 for
+        # any chord.
         values = [0.0] * n_bins
         for note in notes:
             note_end = note.t + note.duration
@@ -112,7 +150,7 @@ def _build_midi_energy(
                 bin_t0 = b * hop_sec
                 bin_t1 = bin_t0 + hop_sec
                 overlap = max(0.0, min(bin_t1, note_end) - max(bin_t0, note.t))
-                values[b] += vel_norm * (overlap / hop_sec)
+                values[b] = max(values[b], vel_norm * (overlap / hop_sec))
         values = [max(0.0, min(1.0, v)) for v in values]
         out[stem] = StemEnergyCurve(hop_sec=hop_sec, values=values)
     return out
@@ -154,6 +192,98 @@ def _warn_if_drums_unclassified(analysis: AnalysisResult, drums: dict) -> None:
         )
 
 
+def _build_beats(analysis: AnalysisResult) -> list[BeatEvent]:
+    """Beats with phrase_id / phrase_position / phrase_length / is_fill set.
+
+    Pattern fields are (re)stamped here so analyses saved before pattern
+    detection existed still export them. Contract 1.3: ``phrase_position``
+    is the 0-based bar index within the phrase; analysis.json (and grammar
+    filters such as ``is_phrase_start()``) keep the 1-based convention, so
+    it is shifted on the way out.
+    """
+    if not analysis.beats:
+        return []
+    stamped = populate_beat_pattern_fields(
+        analysis.model_copy(update={"curves": {}, "midi": {}, "phrases": {}})
+    )
+    out: list[BeatEvent] = []
+    for b in stamped.beats:
+        pos = b.phrase_position
+        out.append(b.model_copy(update={
+            "phrase_position": pos - 1 if pos is not None else None,
+        }))
+    return out
+
+
+def _beats_per_bar(analysis: AnalysisResult) -> int:
+    ts = analysis.tempo.time_signature if analysis.tempo else None
+    return int(ts[0]) if ts and ts[0] > 0 else 4
+
+
+def _silence_mask(analysis: AnalysisResult, hop: float, n: int) -> np.ndarray:
+    """Silent frames on the control grid: 100 ms mix RMS (or LUFS) <= -60."""
+    fast = analysis.curves.get("rms_fast")
+    if fast is not None and fast.values:
+        db = ctl.rms_to_db(ctl.resample(fast.values, fast.hop_sec, hop, n))
+        return db <= ctl.DB_SILENCE
+    lufs = analysis.curves.get("lufs")
+    if lufs is not None and lufs.values:
+        return ctl.resample(lufs.values, lufs.hop_sec, hop, n) <= _LUFS_SILENCE
+    return np.zeros(n, dtype=bool)
+
+
+def _build_controls(
+    analysis: AnalysisResult,
+    sections: list[SectionBundleEntry],
+    drums: dict[str, list[DrumOnset]],
+) -> dict[str, ControlCurve]:
+    """Schema 1.3 dense 0..1 controls, all on the analysis curve hop.
+
+    A control whose inputs are missing (e.g. an analysis cached before
+    ``rms_fast`` existed) is left out rather than emitted empty.
+    """
+    hop = analysis.analysis_config.curve_hop_sec
+    n = ctl.grid_length(analysis.source.duration_sec, hop)
+    if n <= 0:
+        return {}
+    out: dict[str, ControlCurve] = {}
+
+    fast = analysis.curves.get("rms_fast")
+    if fast is not None and fast.values and fast.hop_sec > 0:
+        db = ctl.rms_to_db(ctl.resample(fast.values, fast.hop_sec, hop, n))
+        out["energy_fast"] = ControlCurve(hop_sec=hop, values=ctl.energy_fast(db))
+
+    centroid = analysis.curves.get("spectral_centroid")
+    if centroid is not None and centroid.values and centroid.hop_sec > 0:
+        hz = ctl.resample(centroid.values, centroid.hop_sec, hop, n)
+        out["brightness"] = ControlCurve(
+            hop_sec=hop,
+            values=ctl.brightness(hz, _silence_mask(analysis, hop, n), hop),
+        )
+
+    bpm = analysis.tempo.bpm_global if analysis.tempo else 120.0
+    windows = build_windows(
+        [(s.start, s.end, s.energy_rank) for s in sections],
+        [b.t for b in analysis.beats if b.is_downbeat],
+        bpm,
+        _beats_per_bar(analysis),
+    )
+    out["build"] = ControlCurve(hop_sec=hop, values=build_curve(windows, hop, n))
+
+    if len(analysis.beats) >= 2:
+        onset_times = [
+            o.t for cls in ctl.ONSET_DENSITY_CLASSES for o in drums.get(cls, [])
+        ]
+        out["onset_density"] = ControlCurve(
+            hop_sec=hop,
+            values=ctl.onset_density(
+                onset_times, [b.t for b in analysis.beats], hop, n,
+                _beats_per_bar(analysis),
+            ),
+        )
+    return out
+
+
 def build_bundle(analysis: AnalysisResult, cuesheet: CueSheet) -> MusiCueBundle:
     if analysis.source.sha256 != cuesheet.source_sha256:
         raise ValueError(
@@ -163,14 +293,15 @@ def build_bundle(analysis: AnalysisResult, cuesheet: CueSheet) -> MusiCueBundle:
 
     drums = _build_drums(analysis)
     _warn_if_drums_unclassified(analysis, drums)
+    sections = _build_sections(analysis)
 
     return MusiCueBundle(
         source_sha256=analysis.source.sha256,
         duration_sec=analysis.source.duration_sec,
         fps=cuesheet.fps,
         tempo=analysis.tempo if analysis.tempo else TempoInfo(bpm_global=120.0),
-        beats=analysis.beats,
-        sections=_build_sections(analysis),
+        beats=_build_beats(analysis),
+        sections=sections,
         drums=drums,
         midi=_build_midi(analysis),
         midi_energy=_build_midi_energy(
@@ -178,7 +309,8 @@ def build_bundle(analysis: AnalysisResult, cuesheet: CueSheet) -> MusiCueBundle:
             analysis.analysis_config.curve_hop_sec,
             analysis.source.duration_sec,
         ),
-        stems_energy={},
+        stems_energy=_build_stems_energy(analysis),
         global_energy=_build_global_energy(analysis),
+        controls=_build_controls(analysis, sections, drums),
         cuesheet=cuesheet,
     )
