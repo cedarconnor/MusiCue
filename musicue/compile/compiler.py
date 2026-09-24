@@ -41,6 +41,7 @@ from typing import Literal, cast
 import numpy as np
 
 from musicue.compile.grammar import Grammar, GrammarTrack, load_grammar
+from musicue.compile.normalize import percentile_normalize
 from musicue.compile.scoring import RarityTracker, compute_score, evaluate_filter
 from musicue.schemas import AnalysisResult, CueSheet, CueTrack
 
@@ -106,13 +107,7 @@ def _smooth_ema(values: list[float], tau_sec: float, hop_sec: float) -> list[flo
 
 def _normalize_percentile(values: list[float], low: float, high: float) -> list[float]:
     """Clip values into the [low, high] percentile band and rescale to [0, 1]."""
-    if not values:
-        return []
-    lo = float(np.percentile(values, low))
-    hi = float(np.percentile(values, high))
-    if hi == lo:
-        return [0.0] * len(values)
-    return [float(np.clip((float(v) - lo) / (hi - lo), 0.0, 1.0)) for v in values]
+    return percentile_normalize(values, low, high)
 
 
 def _compile_continuous_track(

@@ -227,7 +227,7 @@ class StemEnergyCurve(BaseModel):
 
 
 class MusiCueBundle(BaseModel):
-    schema_version: str = "1.1"
+    schema_version: str = "1.2"
     source_sha256: str
     decoded_audio_sha256: str | None = None
     duration_sec: float

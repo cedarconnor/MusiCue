@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import logging
+import math
 
+from musicue.compile.normalize import percentile_normalize
 from musicue.schemas import (
     AnalysisResult,
     CueSheet,
@@ -17,6 +19,14 @@ from musicue.schemas import (
 _logger = logging.getLogger(__name__)
 
 
+# LUFS frames at or below this are treated as silence (the LUFS curve
+# floors digital silence at -70).
+_LUFS_SILENCE = -60.0
+# Per-stem RMS (dBFS) at or below this is treated as silence / bleed.
+_RMS_DB_SILENCE = -60.0
+_STEMS = ("drums", "bass", "vocals", "other")
+
+
 def _normalize(values: list[float]) -> list[float]:
     if not values:
         return []
@@ -27,6 +37,11 @@ def _normalize(values: list[float]) -> list[float]:
 
 
 def _section_lufs(analysis: AnalysisResult, start: float, end: float) -> float | None:
+    """Mean LUFS over the section's non-silent frames.
+
+    Silent (-70 floor) frames are excluded so a section with a pause in it
+    isn't dragged toward -70; a fully silent section reports the floor.
+    """
     curve = analysis.curves.get("lufs")
     if curve is None or curve.hop_sec <= 0 or not curve.values:
         return None
@@ -34,7 +49,9 @@ def _section_lufs(analysis: AnalysisResult, start: float, end: float) -> float |
     i1 = min(len(curve.values), int(end / curve.hop_sec))
     if i1 <= i0:
         return None
-    window = curve.values[i0:i1]
+    window = [v for v in curve.values[i0:i1] if v > _LUFS_SILENCE]
+    if not window:
+        return min(curve.values[i0:i1])
     return sum(window) / len(window)
 
 
@@ -44,7 +61,6 @@ def _build_sections(analysis: AnalysisResult) -> list[SectionBundleEntry]:
 
     transitions_by_t = {round(tr.t, 3): tr for tr in analysis.section_transitions}
 
-    raw_scores: list[float] = []
     cached: list[tuple[float | None, float | None]] = []  # (lufs, spectral_rise) per section
     for sec in analysis.sections:
         tr = transitions_by_t.get(round(sec.start, 3))
@@ -52,17 +68,13 @@ def _build_sections(analysis: AnalysisResult) -> list[SectionBundleEntry]:
         lufs = _section_lufs(analysis, sec.start, sec.end)
         cached.append((lufs, spectral_rise))
 
-        score = 0.0
-        components = 0
-        if spectral_rise is not None:
-            score += spectral_rise
-            components += 1
-        if lufs is not None:
-            score += lufs
-            components += 1
-        raw_scores.append(score / components if components else 0.0)
+    # energy_rank is loudness only: LUFS (dB) and spectral_flux_rise (a
+    # 0..1 boundary statistic) are different units and can't be averaged.
+    # Sections without a LUFS value get the neutral 0.5.
+    known = [lufs for lufs, _ in cached if lufs is not None]
+    normalized = iter(_normalize(known))
+    ranks = [next(normalized) if lufs is not None else 0.5 for lufs, _ in cached]
 
-    ranks = _normalize(raw_scores)
     out: list[SectionBundleEntry] = []
     for sec, (lufs, spectral_rise), rank in zip(analysis.sections, cached, ranks):
         out.append(SectionBundleEntry(
@@ -71,17 +83,49 @@ def _build_sections(analysis: AnalysisResult) -> list[SectionBundleEntry]:
             label=sec.label,
             confidence=sec.confidence,
             lufs=lufs,
-            energy_rank=rank if rank is not None else 0.5,
+            energy_rank=rank,
             spectral_flux_rise=spectral_rise,
         ))
     return out
 
 
 def _build_global_energy(analysis: AnalysisResult) -> StemEnergyCurve:
+    """Mix loudness in 0..1: 5th→0, 95th→1 percentile of non-silent LUFS.
+
+    Min-max over raw LUFS let the -70 silence floor define 0, squashing the
+    whole song into the top of the range.
+    """
     curve = analysis.curves.get("lufs")
     if curve is None or not curve.values:
         return StemEnergyCurve(hop_sec=0.04, values=[])
-    return StemEnergyCurve(hop_sec=curve.hop_sec, values=_normalize(curve.values))
+    return StemEnergyCurve(
+        hop_sec=curve.hop_sec,
+        values=percentile_normalize(
+            curve.values, 5.0, 95.0, floor=_LUFS_SILENCE, flat_value=0.5
+        ),
+    )
+
+
+def _build_stems_energy(analysis: AnalysisResult) -> dict[str, StemEnergyCurve]:
+    """Per-stem loudness in 0..1 from the ``rms_<stem>`` analysis curves.
+
+    RMS is converted to dBFS and percentile-normalized per stem (5th→0,
+    95th→1 of that stem's non-silent frames), so each stem uses its own
+    dynamic range: a quiet vocal still reaches 1.0 at its loudest.
+    """
+    out: dict[str, StemEnergyCurve] = {}
+    for stem in _STEMS:
+        curve = analysis.curves.get(f"rms_{stem}")
+        if curve is None or not curve.values:
+            continue
+        db = [20.0 * math.log10(max(float(v), 1e-10)) for v in curve.values]
+        out[stem] = StemEnergyCurve(
+            hop_sec=curve.hop_sec,
+            values=percentile_normalize(
+                db, 5.0, 95.0, floor=_RMS_DB_SILENCE, flat_value=0.5
+            ),
+        )
+    return out
 
 
 def _build_midi(analysis: AnalysisResult) -> dict[str, list[MidiNoteBundle]]:
@@ -102,6 +146,9 @@ def _build_midi_energy(
     n_bins = int(duration_sec / hop_sec)
     out: dict[str, StemEnergyCurve] = {}
     for stem, notes in analysis.midi.items():
+        # Per bin: the loudest sounding note (velocity weighted by how much of
+        # the bin it covers). Summing over polyphony saturated at 1.0 for
+        # any chord.
         values = [0.0] * n_bins
         for note in notes:
             note_end = note.t + note.duration
@@ -112,7 +159,7 @@ def _build_midi_energy(
                 bin_t0 = b * hop_sec
                 bin_t1 = bin_t0 + hop_sec
                 overlap = max(0.0, min(bin_t1, note_end) - max(bin_t0, note.t))
-                values[b] += vel_norm * (overlap / hop_sec)
+                values[b] = max(values[b], vel_norm * (overlap / hop_sec))
         values = [max(0.0, min(1.0, v)) for v in values]
         out[stem] = StemEnergyCurve(hop_sec=hop_sec, values=values)
     return out
@@ -178,7 +225,7 @@ def build_bundle(analysis: AnalysisResult, cuesheet: CueSheet) -> MusiCueBundle:
             analysis.analysis_config.curve_hop_sec,
             analysis.source.duration_sec,
         ),
-        stems_energy={},
+        stems_energy=_build_stems_energy(analysis),
         global_energy=_build_global_energy(analysis),
         cuesheet=cuesheet,
     )

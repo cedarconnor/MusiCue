@@ -73,7 +73,7 @@ def test_sha_cross_check_raises_on_mismatch():
 
 def test_empty_analysis_yields_minimal_bundle():
     bundle = build_bundle(_analysis(), _cuesheet())
-    assert bundle.schema_version == "1.1"
+    assert bundle.schema_version == "1.2"
     assert bundle.duration_sec == 10.0
     assert bundle.sections == []
     assert bundle.drums == {}
@@ -212,3 +212,110 @@ def test_sections_get_normalized_energy_rank():
         assert s.energy_rank == 0.5
         assert s.lufs is None
         assert s.spectral_flux_rise is None
+
+
+# ---- Robust energy normalization ----
+
+
+def test_global_energy_ignores_silent_intro():
+    """Silent intro (-70) + quiet (-30) + loud (-10): the silence floor must
+    not define 0, so quiet reads low and loud reads high."""
+    analysis = _analysis()
+    values = [-70.0] * 100 + [-30.0] * 100 + [-10.0] * 100
+    analysis.curves = {"lufs": TimedCurve(hop_sec=0.04, values=values)}
+
+    energy = build_bundle(analysis, _cuesheet()).global_energy.values
+
+    assert max(energy[:100]) == 0.0
+    assert max(energy[100:200]) < 0.3
+    assert min(energy[200:]) > 0.7
+    assert all(0.0 <= v <= 1.0 for v in energy)
+
+
+def _section_analysis(lufs_by_section: list[float], transitions=None) -> AnalysisResult:
+    from musicue.schemas import SectionTransition
+
+    sections = [
+        SectionEvent(start=i * 4.0, end=(i + 1) * 4.0, label=f"s{i}", confidence=0.9)
+        for i in range(len(lufs_by_section))
+    ]
+    analysis = _analysis(sections=sections)
+    values: list[float] = []
+    for lufs in lufs_by_section:
+        # Each section: a short silent gap then its level (100 frames = 4 s).
+        values += [-70.0] * 10 + [lufs] * 90
+    analysis.curves = {"lufs": TimedCurve(hop_sec=0.04, values=values)}
+    if transitions:
+        analysis.section_transitions = [
+            SectionTransition.model_validate({
+                "t": i * 4.0, "from": f"s{i - 1}", "to": f"s{i}",
+                "ramp": {"t_start": i * 4.0 - 1.2, "t_end": i * 4.0, "shape": "ease_in"},
+                "ramp_evidence": {"spectral_flux_rise": rise, "lufs_rise_db": 0.0},
+            })
+            for i, rise in transitions.items()
+        ]
+    return analysis
+
+
+def test_section_energy_rank_is_loudness_only():
+    # First section is the loudest; transitions carry high flux rise that
+    # must not leak into the rank (it used to be averaged with dB values).
+    analysis = _section_analysis([-8.0, -20.0, -14.0], transitions={1: 0.9, 2: 0.1})
+    sections = build_bundle(analysis, _cuesheet()).sections
+
+    ranks = [s.energy_rank for s in sections]
+    assert ranks[0] == pytest.approx(1.0)
+    assert ranks[1] == pytest.approx(0.0)
+    assert ranks[2] == pytest.approx(0.5)
+    # Silent frames excluded from the section mean.
+    assert sections[0].lufs == pytest.approx(-8.0)
+    # Passthrough of the transition evidence is kept.
+    assert sections[0].spectral_flux_rise is None
+    assert sections[1].spectral_flux_rise == pytest.approx(0.9)
+
+
+# ---- Per-stem energy ----
+
+
+def test_stems_energy_populated_from_rms_curves():
+    analysis = _analysis()
+    quiet, loud = 0.01, 0.1  # -40 dBFS, -20 dBFS
+    analysis.curves = {
+        "rms_drums": TimedCurve(hop_sec=0.04, values=[0.0] * 50 + [quiet] * 50 + [loud] * 50),
+        # A much quieter stem still spans 0..1 over its own range.
+        "rms_vocals": TimedCurve(hop_sec=0.04, values=[0.002] * 50 + [0.02] * 50),
+    }
+    stems = build_bundle(analysis, _cuesheet()).stems_energy
+
+    assert set(stems) == {"drums", "vocals"}
+    drums = stems["drums"]
+    assert drums.hop_sec == 0.04
+    assert len(drums.values) == 150
+    assert max(drums.values[:50]) == 0.0
+    assert max(drums.values[50:100]) < 0.3
+    assert min(drums.values[100:]) > 0.7
+    assert min(stems["vocals"].values[50:]) > 0.7
+    assert all(0.0 <= v <= 1.0 for c in stems.values() for v in c.values)
+
+
+def test_stems_energy_empty_without_rms_curves():
+    assert build_bundle(_analysis(), _cuesheet()).stems_energy == {}
+
+
+# ---- MIDI energy ----
+
+
+def test_midi_energy_uses_max_not_sum_over_polyphony():
+    analysis = _analysis()
+    # A three-note chord at velocity 64 (~0.5): summing saturated at 1.0.
+    analysis.midi = {
+        "other": [
+            MidiNote(t=0.0, duration=1.0, pitch=p, velocity=64) for p in (60, 64, 67)
+        ] + [MidiNote(t=0.0, duration=1.0, pitch=72, velocity=32)],
+    }
+    energy = build_bundle(analysis, _cuesheet()).midi_energy["other"].values
+    assert energy[5] == pytest.approx(64 / 127)
+    # Partial overlap still weights by coverage of the bin.
+    analysis.midi = {"other": [MidiNote(t=0.02, duration=1.0, pitch=60, velocity=127)]}
+    energy = build_bundle(analysis, _cuesheet()).midi_energy["other"].values
+    assert energy[0] == pytest.approx(0.5)

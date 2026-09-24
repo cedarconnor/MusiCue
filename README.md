@@ -252,7 +252,7 @@ CedarToy synthesizes its `iChannel0` texture from MusiCue's events instead of ra
 - A normalized global energy curve over the whole song
 - The compiled cuesheet embedded verbatim, for tools that want grammar-shaped events
 
-The bundle is plain JSON, schema-versioned at `1.0`, typically 50–200 KB. Generate it once per song; multiple visual tools can consume the same file.
+The bundle is plain JSON, schema-versioned at `1.2`, typically 50–200 KB. Generate it once per song; multiple visual tools can consume the same file.
 
 **Note on drum reactivity:** every detected drum onset is classified into kick / snare / hat. When `models/drum_cnn.pt` is present the CNN handles it; otherwise MusiCue uses a built-in spectral-band heuristic that compares the energy in the low / mid / high band of the 50 ms after the hit and picks the dominant band. The heuristic ships with the package — no training step or extra download is needed for the bundle's per-drum tracks to populate.
 
