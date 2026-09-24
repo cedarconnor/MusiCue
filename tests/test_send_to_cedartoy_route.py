@@ -204,3 +204,41 @@ def test_send_to_cedartoy_force_analyze_bypasses_cache(client, tmp_path, monkeyp
     )
     assert resp.status_code == 200, resp.text
     assert calls == [{"force": True, "runs_dir": root / "songs" / sha / "analyses"}]
+
+
+def test_send_to_cedartoy_force_analyze_exports_fresh_stems(client, tmp_path, monkeypatch):
+    """A forced run may land in a different cache-keyed run dir; the export
+    must copy that run's stems, not the stale ones under analysis_id."""
+    import musicue.analysis.pipeline as pipeline
+    from musicue.schemas import AnalysisResult
+
+    c, root = client
+    sha = _seed_with_audio(tmp_path, root)
+    analyses = root / "songs" / sha / "analyses"
+    seeded = AnalysisResult.model_validate_json(
+        (analyses / ANALYSIS_ID / "analysis.json").read_text()
+    )
+    fresh_dir = analyses / "0123456789ab" / "stems"
+    fresh_dir.mkdir(parents=True)
+    stems = {}
+    for name in ("drums", "bass", "vocals", "other"):
+        p = fresh_dir / f"{name}.wav"
+        sf.write(str(p), np.full(11025, 0.25, dtype="float32"), 44100, subtype="PCM_16")
+        stems[name] = str(p)
+    fresh = seeded.model_copy(update={"stems": stems})
+    monkeypatch.setattr(pipeline, "run_analysis", lambda a, cfg, force=False: fresh)
+
+    out = tmp_path / "forced_stems"
+    resp = c.post(
+        f"/api/songs/{sha}/analyses/{ANALYSIS_ID}/send-to-cedartoy",
+        json={
+            "output_folder": str(out),
+            "grammar": "concert_visuals",
+            "include_stems": True,
+            "force_analyze": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    for name in ("drums", "bass", "vocals", "other"):
+        data, _ = sf.read(str(out / "stems" / f"{name}.wav"))
+        assert np.allclose(data, 0.25, atol=1e-3)

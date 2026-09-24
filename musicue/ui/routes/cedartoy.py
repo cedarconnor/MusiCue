@@ -134,6 +134,7 @@ def send_to_cedartoy(
         raise HTTPException(status_code=404, detail="song not found")
     analysis_path = storage.analysis_dir(song_id, analysis_id) / "analysis.json"
     out_dir = _resolve_output_folder(body.output_folder)
+    stems_src = storage.analysis_dir(song_id, analysis_id) / "stems"
 
     if body.force_analyze:
         # Re-run analysis synchronously. Blocks the request. Same pattern as
@@ -150,6 +151,11 @@ def send_to_cedartoy(
         analysis_path.write_text(
             result.model_dump_json(indent=2), encoding="utf-8"
         )
+        # The forced run writes stems under its own cache-keyed run dir,
+        # which can differ from analysis_id (e.g. after an algo-version
+        # bump). Export the stems that belong to the refreshed analysis.
+        if result.stems:
+            stems_src = Path(next(iter(result.stems.values()))).parent
     elif not analysis_path.exists():
         raise HTTPException(status_code=404, detail="analysis not found")
 
@@ -175,7 +181,6 @@ def send_to_cedartoy(
             status_code=500, detail=f"compile failed: {e}"
         ) from e
 
-    stems_src = storage.analysis_dir(song_id, analysis_id) / "stems"
     try:
         mc_ver = _pkg_version("musicue")
     except Exception:
