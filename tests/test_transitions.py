@@ -109,3 +109,43 @@ def test_section_ramp_filters_follow_new_scale():
         (track,) = [t for t in grammar.tracks if t.name == "section_ramp"]
         assert evaluate_filter(track.filter, rise) is True
         assert evaluate_filter(track.filter, flat) is False
+
+
+# ---- Build-window ramps ----
+
+
+def _lufs_steps(levels: list[tuple[float, float]], hop_sec=0.04, n=2500):
+    values = np.full(n, -20.0)
+    for t_from, level in levels:
+        values[int(t_from / hop_sec):] = level
+    return {"hop_sec": hop_sec, "values": values.tolist()}
+
+
+def _grid(bar=2.0, until=100.0):
+    return [i * bar for i in range(int(until / bar) + 1)]
+
+
+def test_build_ramp_spans_eight_bars_on_the_beat_grid():
+    sections = [
+        {"start": 0.0, "end": 40.0, "label": "verse"},
+        {"start": 40.0, "end": 80.0, "label": "chorus"},
+    ]
+    lufs = _lufs_steps([(0.0, -24.0), (40.0, -10.0)])
+    (tr,) = derive_transitions(sections, _make_flux(), lufs, downbeats=_grid(), bpm=120.0)
+    assert tr["ramp"]["t_start"] == pytest.approx(24.0)
+    assert tr["ramp"]["t_end"] == pytest.approx(40.0)
+    assert tr["ramp"]["shape"] == "ease_in"
+
+
+def test_non_build_and_gridless_ramps_keep_short_default():
+    sections = [
+        {"start": 0.0, "end": 40.0, "label": "chorus"},
+        {"start": 40.0, "end": 80.0, "label": "verse"},
+    ]
+    drop = _lufs_steps([(0.0, -10.0), (40.0, -24.0)])
+    (tr,) = derive_transitions(sections, _make_flux(), drop, downbeats=_grid(), bpm=120.0)
+    assert tr["ramp"]["t_start"] == pytest.approx(40.0 - 1.2)
+
+    rise = _lufs_steps([(0.0, -24.0), (40.0, -10.0)])
+    (tr,) = derive_transitions(sections, _make_flux(), rise)  # no grid supplied
+    assert tr["ramp"]["t_start"] == pytest.approx(40.0 - 1.2)

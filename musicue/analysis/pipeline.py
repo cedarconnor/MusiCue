@@ -68,7 +68,9 @@ log = logging.getLogger(__name__)
 # drum detection, curve windows, transition evidence, phrase energy, bar
 # numbering, ...). It is part of the cache key, so stale cached analyses
 # are recomputed instead of silently served.
-ANALYSIS_ALGO_VERSION = "2"
+# "3": adds the mix ``rms_fast`` curve (100 ms window) and build-window
+# section-transition ramps.
+ANALYSIS_ALGO_VERSION = "3"
 
 
 def _sha256(path: Path) -> str:
@@ -259,6 +261,18 @@ def run_analysis(
             **compute_spectral_flux_curve(audio_path, hop_sec=cfg.analysis.curve_hop_sec)
         ),
     }
+    # Mix loudness with a short window, for the bundle's ``energy_fast``
+    # control. The per-stem ``rms_<stem>`` curves use librosa's default
+    # 2048-sample frame (~46 ms at 44.1 kHz, ~43 ms at 48 kHz) at a 40 ms
+    # hop -- barely overlapping, so they ripple with individual bass cycles
+    # and flicker frame to frame -- and there is no mix-level RMS at all
+    # (summing stems isn't the mix). LUFS uses the 400 ms BS.1770 block,
+    # too slow to follow hits. A fixed 100 ms centered window (2.5x hop
+    # overlap) follows each drum hit yet stays smooth, independent of the
+    # file's sample rate.
+    curves["rms_fast"] = TimedCurve(
+        **compute_rms_curve(audio_path, hop_sec=cfg.analysis.curve_hop_sec, frame_sec=0.1)
+    )
     stereo = compute_stereo_width_pan(audio_path, hop_sec=cfg.analysis.curve_hop_sec)
     curves["stereo_width"] = TimedCurve(**stereo["width"])
     curves["stereo_pan"] = TimedCurve(**stereo["pan"])
@@ -302,7 +316,14 @@ def run_analysis(
         "hop_sec": curves["lufs"].hop_sec,
         "values": curves["lufs"].values,
     }
-    raw_transitions = derive_transitions(sections_dicts, flux_dict, lufs_dict)
+    raw_transitions = derive_transitions(
+        sections_dicts,
+        flux_dict,
+        lufs_dict,
+        downbeats=[b.t for b in beats if b.is_downbeat],
+        bpm=tempo.bpm_global,
+        beats_per_bar=(tempo.time_signature[0] if tempo.time_signature else 4) or 4,
+    )
     section_transitions = [SectionTransition.model_validate(t) for t in raw_transitions]
 
     # --- MIDI typing -------------------------------------------------------

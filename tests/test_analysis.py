@@ -309,3 +309,18 @@ def test_lufs_curve_is_centered_on_step(tmp_path):
     mid = (lo + hi) / 2.0
     cross_idx = int(np.argmax(power > mid))
     assert abs(cross_idx * hop - 12.0) <= 0.05, cross_idx * hop
+
+
+def test_rms_curve_fixed_window_is_smoother_and_aligned(synthetic_wav):
+    default = compute_rms_curve(synthetic_wav, hop_sec=0.04)
+    fast = compute_rms_curve(synthetic_wav, hop_sec=0.04, frame_sec=0.1)
+    assert fast["hop_sec"] == default["hop_sec"]
+    assert len(fast["values"]) == len(default["values"])  # same centered grid
+    import numpy as np
+
+    d = np.abs(np.diff(default["values"])).sum()
+    f = np.abs(np.diff(fast["values"])).sum()
+    assert f < d  # longer window -> less frame-to-frame flicker
+    # The burst at 2.5 s is still visible within +-1 frame of its onset.
+    i = round(2.5 / fast["hop_sec"])
+    assert max(fast["values"][i - 1:i + 2]) > 1.05 * fast["values"][i - 10]

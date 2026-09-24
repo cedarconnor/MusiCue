@@ -11,16 +11,28 @@ of evidence:
 * ``lufs_rise_db`` -- LUFS rise across the ``lookback_sec`` window placed
   immediately before the boundary (loudness growth into the boundary).
 
-The ramp itself is still a fixed ``ease_in`` over the last
-``0.8 * lookback_sec`` before the boundary; it is not yet shaped by the
-evidence (a build that starts 8 bars early still gets a ~1.2 s ramp).
+The ramp is an ``ease_in`` ending at the boundary. When the boundary is a
+build (the next section's loudness rank clearly exceeds the current one's,
+see :mod:`musicue.analysis.builds`) and a beat grid is supplied, the ramp
+spans the same build window as the bundle's ``build`` control: up to 8 bars
+before the boundary, clamped to the current section's start. Otherwise it
+is the short default over the last ``0.8 * lookback_sec`` (~1.2 s).
 The output is a list of transition dicts shaped to match the M1
 ``SectionTransition`` schema -- note the dict key ``"from"`` matches the
 schema's alias-based parsing on the pydantic side.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
+
+from musicue.analysis.builds import (
+    build_window_start,
+    energy_ranks,
+    is_build,
+    section_lufs,
+)
 
 
 def derive_transitions(
@@ -29,6 +41,9 @@ def derive_transitions(
     lufs: dict,
     lookback_sec: float = 1.5,
     flux_window_sec: float = 2.0,
+    downbeats: Sequence[float] | None = None,
+    bpm: float | None = None,
+    beats_per_bar: int = 4,
 ) -> list[dict]:
     """Emit one transition dict per section boundary.
 
@@ -63,6 +78,12 @@ def derive_transitions(
     flux_std = float(np.std(flux_vals)) if len(flux_vals) else 0.0
     flux_win = max(1, int(round(flux_window_sec / flux_hop)))
 
+    ranks = energy_ranks([
+        section_lufs(lufs_vals.tolist(), lufs_hop, s["start"], s["end"])
+        for s in sections
+    ])
+    use_grid = downbeats is not None and bpm is not None and bpm > 0
+
     transitions = []
     for i in range(1, len(sections)):
         t = sections[i]["start"]
@@ -82,6 +103,11 @@ def derive_transitions(
         lufs_rise = float(window_lufs[-1] - window_lufs[0]) if len(window_lufs) >= 2 else 0.0
 
         ramp_start = max(0.0, t - lookback_sec * 0.8)
+        if use_grid and is_build(ranks[i - 1], ranks[i]):
+            ramp_start = build_window_start(
+                float(t), float(sections[i - 1]["start"]), downbeats, bpm,
+                beats_per_bar,
+            )
         transitions.append({
             "t": float(t),
             "from": sections[i - 1]["label"],
